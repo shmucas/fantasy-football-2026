@@ -8,6 +8,8 @@ class LeagueConfig(BaseModel):
     season: str
     num_teams: int
     friend_group: str
+    roster_positions: list[str]
+    faab: bool
 
 
 LEAGUES: dict[str, LeagueConfig] = {
@@ -18,6 +20,9 @@ LEAGUES: dict[str, LeagueConfig] = {
         season="2026",
         num_teams=14,
         friend_group="high_school",
+        roster_positions=["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "K", "DEF",
+                           "BN", "BN", "BN", "BN", "BN"],
+        faab=True,
     ),
     "maxxing_college": LeagueConfig(
         key="maxxing_college",
@@ -26,6 +31,9 @@ LEAGUES: dict[str, LeagueConfig] = {
         season="2026",
         num_teams=10,
         friend_group="college",
+        roster_positions=["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "FLEX", "K", "DEF",
+                           "BN", "BN", "BN", "BN", "BN"],
+        faab=False,
     ),
 }
 
