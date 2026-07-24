@@ -28,15 +28,19 @@ def load_players(csv_path: Path) -> list[Player]:
                     proj_stdev=float(row["proj_stdev"]),
                     adp=float(row["adp"]),
                     adp_stdev=float(row.get("adp_stdev", 0.0) or 0.0),
+                    game_cv=float(row.get("game_cv", 0.8) or 0.8),
+                    season_cv=float(row.get("season_cv", 0.3) or 0.3),
                 )
             )
     return players
 
 
 def _run_one(args: tuple) -> float:
-    players, num_teams, rounds, roster_positions, my_slot, forced_picks, seed = args
+    players, num_teams, rounds, roster_positions, my_slot, forced_picks, already_picked, seed = args
     rng = random.Random(seed)
-    result = simulate_draft(players, num_teams, rounds, roster_positions, my_slot, rng, forced_picks)
+    result = simulate_draft(
+        players, num_teams, rounds, roster_positions, my_slot, rng, forced_picks, already_picked
+    )
     return roster_projected_points(result.rosters[my_slot], roster_positions)
 
 
@@ -49,9 +53,10 @@ def run_scenario(
     forced_picks: dict[int, str] | None,
     n_sims: int,
     base_seed: int = 0,
+    already_picked: list[str] | None = None,
 ) -> list[float]:
     tasks = [
-        (players, num_teams, rounds, roster_positions, my_slot, forced_picks, base_seed + i)
+        (players, num_teams, rounds, roster_positions, my_slot, forced_picks, already_picked, base_seed + i)
         for i in range(n_sims)
     ]
     with Pool() as pool:
