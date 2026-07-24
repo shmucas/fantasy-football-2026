@@ -14,6 +14,20 @@ Both leagues share one codebase and one local SQLite DB (`data/ffb.db`), scoped 
 uv sync
 ```
 
+## Web UI
+
+A small FastAPI layer exposes league data and lets you trigger simulations from
+the React frontend in `../frontend`.
+
+```bash
+# backend API (from backend/)
+uv run uvicorn ffb.api:app --reload --port 8010
+
+# frontend (from frontend/)
+npm install
+npm run dev
+```
+
 ## Sleeper data (read-only API)
 
 ```bash
