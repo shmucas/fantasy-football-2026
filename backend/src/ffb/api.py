@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
+from ffb.draft.strategy import replacement_levels, vorp
 from ffb.leagues import LEAGUES, SLEEPER_USER_ID
 from ffb.sleeper_client import SleeperClient
 
@@ -115,6 +116,52 @@ def list_players(league_key: str) -> list[dict]:
         return []
     with pool_path.open() as f:
         return list(csv.DictReader(f))
+
+
+@app.get("/api/leagues/{league_key}/recommend", response_model=list[dict])
+def recommend_next_pick(league_key: str, exclude: str = "") -> list[dict]:
+    """Best available players by VORP, given players already picked/forced elsewhere."""
+    league = _get_league(league_key)
+    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
+    if not pool_path.exists():
+        return []
+
+    players = load_players(pool_path)
+    excluded_ids = {pid for pid in exclude.split(",") if pid}
+    available = [p for p in players if p.player_id not in excluded_ids]
+
+    replacement = replacement_levels(available, league.roster_positions, league.num_teams)
+    ranked = sorted(available, key=lambda p: -vorp(p, replacement))[:8]
+    return [
+        {
+            "player_id": p.player_id,
+            "name": p.name,
+            "position": p.position,
+            "proj_points": p.proj_points,
+            "vorp": round(vorp(p, replacement), 1),
+        }
+        for p in ranked
+    ]
+
+
+@app.get("/api/leagues/{league_key}/waivers", response_model=list[dict])
+def list_waivers(league_key: str) -> list[dict]:
+    """Players in the pool not currently rostered by anyone in the league."""
+    league = _get_league(league_key)
+    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
+    if not pool_path.exists():
+        return []
+
+    with SleeperClient() as client:
+        rosters = client.get_rosters(league.league_id)
+    rostered_ids = {pid for r in rosters for pid in (r.get("players") or [])}
+
+    with pool_path.open() as f:
+        pool = list(csv.DictReader(f))
+
+    available = [p for p in pool if p["player_id"] not in rostered_ids]
+    available.sort(key=lambda p: float(p["proj_points"] or 0), reverse=True)
+    return available
 
 
 def _get_league(league_key: str):

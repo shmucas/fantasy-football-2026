@@ -39,6 +39,14 @@ type Player = {
   adp_stdev: string;
 };
 
+type Recommendation = {
+  player_id: string;
+  name: string;
+  position: string;
+  proj_points: number;
+  vorp: number;
+};
+
 function App() {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -51,6 +59,11 @@ function App() {
   const [runError, setRunError] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [posFilter, setPosFilter] = useState<string>("ALL");
+  const [forcedPicks, setForcedPicks] = useState<{ round: number; playerId: string }[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [view, setView] = useState<"draft" | "waivers">("draft");
+  const [waivers, setWaivers] = useState<Player[]>([]);
+  const [waiversLoading, setWaiversLoading] = useState(false);
 
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
@@ -82,8 +95,29 @@ function App() {
       .then(setPlayers)
       .catch(() => setPlayers([]));
 
+    setForcedPicks([]);
+    setWaivers([]);
     loadResults(activeKey);
   }, [activeKey]);
+
+  useEffect(() => {
+    if (!activeKey) return;
+    const excluded = forcedPicks.filter((f) => f.playerId).map((f) => f.playerId);
+    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`)
+      .then((r) => r.json())
+      .then(setRecommendations)
+      .catch(() => setRecommendations([]));
+  }, [activeKey, forcedPicks]);
+
+  useEffect(() => {
+    if (!activeKey || view !== "waivers") return;
+    setWaiversLoading(true);
+    fetch(`${API}/leagues/${activeKey}/waivers`)
+      .then((r) => r.json())
+      .then(setWaivers)
+      .catch(() => setWaivers([]))
+      .finally(() => setWaiversLoading(false));
+  }, [activeKey, view]);
 
   function loadResults(key: string) {
     fetch(`${API}/leagues/${key}/results`)
@@ -104,7 +138,9 @@ function App() {
           league_key: activeKey,
           my_slot: mySlot,
           n_sims: nSims,
-          forced_picks: {},
+          forced_picks: Object.fromEntries(
+            forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
+          ),
         }),
       });
       if (!res.ok) throw new Error("Simulation failed to run");
@@ -122,6 +158,23 @@ function App() {
     .slice()
     .sort((a, b) => Number(a.adp) - Number(b.adp))
     .slice(0, 60);
+  const pickablePlayers = players.slice().sort((a, b) => Number(a.adp) - Number(b.adp));
+
+  function addForcedPick() {
+    setForcedPicks((prev) => [...prev, { round: prev.length + 1, playerId: "" }]);
+  }
+
+  function updateForcedPick(index: number, field: "round" | "playerId", value: string) {
+    setForcedPicks((prev) =>
+      prev.map((f, i) =>
+        i === index ? { ...f, [field]: field === "round" ? Number(value) : value } : f
+      )
+    );
+  }
+
+  function removeForcedPick(index: number) {
+    setForcedPicks((prev) => prev.filter((_, i) => i !== index));
+  }
 
   const domainMin = results.length ? Math.min(...results.map((r) => r.p10)) : 0;
   const domainMax = results.length ? Math.max(...results.map((r) => r.p90)) : 1;
@@ -149,6 +202,23 @@ function App() {
       </div>
 
       {active && (
+        <div className="subtabs">
+          <button
+            className={`subtab ${view === "draft" ? "active" : ""}`}
+            onClick={() => setView("draft")}
+          >
+            Draft
+          </button>
+          <button
+            className={`subtab ${view === "waivers" ? "active" : ""}`}
+            onClick={() => setView("waivers")}
+          >
+            Waivers
+          </button>
+        </div>
+      )}
+
+      {active && view === "draft" && (
         <div className="grid">
           <div className="card">
             <h2>Your Roster</h2>
@@ -171,14 +241,34 @@ function App() {
                   </div>
                 </div>
                 <ul className="player-list">
-                  {roster.player_ids.length === 0 && (
+                  {roster.player_ids.length === 0 && forcedPicks.length === 0 && (
                     <li className="state-msg">No players rostered yet</li>
                   )}
                   {roster.player_ids.map((id) => (
                     <li key={id} className="player-chip">
+                      <img
+                        className="avatar avatar-sm"
+                        src={`https://sleepercdn.com/content/nfl/players/${id}.jpg`}
+                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                        alt=""
+                      />
                       {playerById.get(id)?.name ?? id}
                     </li>
                   ))}
+                  {forcedPicks
+                    .filter((f) => f.playerId)
+                    .sort((a, b) => a.round - b.round)
+                    .map((f) => (
+                      <li key={`plan-${f.round}`} className="player-chip planned">
+                        <img
+                          className="avatar avatar-sm"
+                          src={`https://sleepercdn.com/content/nfl/players/${f.playerId}.jpg`}
+                          onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                          alt=""
+                        />
+                        R{f.round}: {playerById.get(f.playerId)?.name ?? f.playerId}
+                      </li>
+                    ))}
                 </ul>
               </>
             )}
@@ -208,8 +298,66 @@ function App() {
                 />
               </div>
             </div>
+
+            <div className="force-picks">
+              <label>Force my picks</label>
+              {forcedPicks.map((f, i) => (
+                <div className="force-row" key={i}>
+                  <input
+                    type="number"
+                    min={1}
+                    className="force-round"
+                    value={f.round}
+                    onChange={(e) => updateForcedPick(i, "round", e.target.value)}
+                  />
+                  <select
+                    value={f.playerId}
+                    onChange={(e) => updateForcedPick(i, "playerId", e.target.value)}
+                  >
+                    <option value="">Select a player...</option>
+                    {pickablePlayers.map((p) => (
+                      <option key={p.player_id} value={p.player_id}>
+                        {p.name} ({p.position}, ADP {Number(p.adp).toFixed(1)})
+                      </option>
+                    ))}
+                  </select>
+                  <button className="remove-pick-btn" onClick={() => removeForcedPick(i)}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button className="add-pick-btn" onClick={addForcedPick}>
+                + Add forced pick
+              </button>
+            </div>
+
+            {recommendations.length > 0 && (
+              <div className="recommend-box">
+                <span className="recommend-label">Suggested next pick (by value over replacement)</span>
+                <ul className="player-list">
+                  {recommendations.map((r) => (
+                    <li
+                      key={r.player_id}
+                      className="player-chip recommend-chip"
+                      title={`${r.proj_points.toFixed(0)} projected points, ${r.vorp.toFixed(
+                        0
+                      )} above the last startable ${r.position} in this league - the best value left on the board.`}
+                    >
+                      <img
+                        className="avatar avatar-sm"
+                        src={`https://sleepercdn.com/content/nfl/players/${r.player_id}.jpg`}
+                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                        alt=""
+                      />
+                      {r.name} <span className="pos-pill">{r.position}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <button className="run-btn" onClick={runSim} disabled={running}>
-              {running ? "Simulating..." : "Run baseline simulation"}
+              {running ? "Simulating..." : "Run simulation"}
             </button>
             {runError && <p className="state-msg error">{runError}</p>}
 
@@ -272,6 +420,7 @@ function App() {
                 <table className="players-table">
                   <thead>
                     <tr>
+                      <th></th>
                       <th>Player</th>
                       <th>Pos</th>
                       <th>ADP</th>
@@ -281,6 +430,14 @@ function App() {
                   <tbody>
                     {shownPlayers.map((p) => (
                       <tr key={p.player_id}>
+                        <td>
+                          <img
+                            className="avatar"
+                            src={`https://sleepercdn.com/content/nfl/players/${p.player_id}.jpg`}
+                            onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                            alt=""
+                          />
+                        </td>
                         <td>{p.name}</td>
                         <td>
                           <span className="pos-pill">{p.position}</span>
@@ -294,6 +451,54 @@ function App() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {active && view === "waivers" && (
+        <div className="card full-width">
+          <h2>Waiver Wire</h2>
+          <p className="state-msg" style={{ marginBottom: 14 }}>
+            Players in the pool not currently rostered by anyone in {active.name}.
+          </p>
+          {waiversLoading && <p className="state-msg">Loading...</p>}
+          {!waiversLoading && waivers.length === 0 && (
+            <p className="results-empty">No unrostered players found.</p>
+          )}
+          {!waiversLoading && waivers.length > 0 && (
+            <div className="players-scroll">
+              <table className="players-table">
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Player</th>
+                    <th>Pos</th>
+                    <th>ADP</th>
+                    <th>Proj. Pts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waivers.map((p) => (
+                    <tr key={p.player_id}>
+                      <td>
+                        <img
+                          className="avatar"
+                          src={`https://sleepercdn.com/content/nfl/players/${p.player_id}.jpg`}
+                          onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                          alt=""
+                        />
+                      </td>
+                      <td>{p.name}</td>
+                      <td>
+                        <span className="pos-pill">{p.position}</span>
+                      </td>
+                      <td>{Number(p.adp).toFixed(1)}</td>
+                      <td>{Number(p.proj_points).toFixed(0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
