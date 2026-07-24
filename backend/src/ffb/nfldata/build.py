@@ -22,12 +22,13 @@ from ffb.nfldata.ids import normalize_name, sleeper_id_lookup
 from ffb.sleeper_client import SleeperClient
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
-HISTORY_SEASONS = [2022, 2023, 2024]
+HISTORY_SEASONS = [2021, 2022, 2023, 2024]
 GAMES_PER_SEASON = 17
 
 # K/DEF baseline: best starter ~ these points, declining ~4% per rank.
 KDEF_TOP_POINTS = {"K": 150.0, "DEF": 140.0}
 KDEF_WEEKLY_STDEV = {"K": 3.0, "DEF": 4.0}
+KDEF_SEASON_CV = 0.12  # kickers/defenses are fairly stable season to season
 
 
 def _league_scoring(sleeper_scoring: dict) -> dict[str, float]:
@@ -58,13 +59,16 @@ def build_pool(league_key: str, year: int = 2026) -> Path:
         if pos in ("K", "DEF"):
             proj = KDEF_TOP_POINTS.get(pos, 120.0) * (0.96 ** (rank - 1))
             stdev = KDEF_WEEKLY_STDEV.get(pos, 4.0)
+            game_cv = round(stdev / (proj / GAMES_PER_SEASON), 3)
+            season_cv = KDEF_SEASON_CV
         else:
             season_pts = history.curve_points(pos, rank)
             if season_pts is None:
                 continue  # unknown position, skip
             proj = season_pts
-            cv = history.cv.get(pos, 0.8)
-            stdev = round(cv * (proj / GAMES_PER_SEASON), 2)
+            game_cv = history.game_cv.get(pos, 0.8)
+            season_cv = history.season_cv.get(pos, 0.3)
+            stdev = round(game_cv * (proj / GAMES_PER_SEASON), 2)
 
         sid = sid_lookup.get((normalize_name(r["name"]), pos))
         if sid:
@@ -76,6 +80,8 @@ def build_pool(league_key: str, year: int = 2026) -> Path:
                 "position": pos,
                 "proj_points": round(proj, 1),
                 "proj_stdev": stdev,
+                "game_cv": round(game_cv, 3),
+                "season_cv": round(season_cv, 3),
                 "adp": r["adp"],
                 "adp_stdev": r.get("stdev", 0.0),
             }

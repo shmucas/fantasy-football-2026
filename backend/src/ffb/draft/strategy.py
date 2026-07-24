@@ -36,6 +36,8 @@ class Player:
     proj_stdev: float
     adp: float
     adp_stdev: float = 0.0
+    game_cv: float = 0.8    # weekly (game-to-game) coefficient of variation
+    season_cv: float = 0.3  # season-to-season coefficient of variation
 
 
 def replacement_levels(players: list[Player], roster_positions: list[str], num_teams: int) -> dict[str, float]:

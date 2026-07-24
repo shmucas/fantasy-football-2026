@@ -24,8 +24,12 @@ MIN_GAMES_FOR_VARIANCE = 8
 class HistoryModel:
     # position -> list of season points indexed by (rank-1); rank 1 = best.
     curve: dict[str, list[float]]
-    # position -> coefficient of variation (weekly std / weekly mean).
+    # position -> weekly coefficient of variation (weekly std / weekly mean).
     cv: dict[str, float]
+    # position -> within-season game-to-game CV (the game-level draw).
+    game_cv: dict[str, float]
+    # position -> between-season CV of a player's season mean (the season draw).
+    season_cv: dict[str, float]
 
     def curve_points(self, position: str, positional_rank: int) -> float | None:
         c = self.curve.get(position)
@@ -65,11 +69,28 @@ def build_history_model(scoring: dict[str, float], seasons: list[int]) -> Histor
         rows = curve_df.filter(pl.col("position") == pos).sort("pos_rank")
         curve[pos] = rows["pts"].to_list()
 
-    # --- position coefficient of variation from established players ---
+    # --- variance decomposition from established player-seasons ---
+    # game-level CV: within-season week-to-week std relative to that season's ppg.
     established = per_season.filter(pl.col("games") >= MIN_GAMES_FOR_VARIANCE).with_columns(
-        (pl.col("wk_std") / pl.col("ppg")).alias("cv")
+        (pl.col("wk_std") / pl.col("ppg")).alias("gcv")
     )
-    cv_df = established.group_by("position").agg(pl.col("cv").median().alias("cv"))
-    cv = {r["position"]: r["cv"] for r in cv_df.iter_rows(named=True)}
+    gcv_df = established.group_by("position").agg(pl.col("gcv").median().alias("v"))
+    game_cv = {r["position"]: r["v"] for r in gcv_df.iter_rows(named=True)}
+    cv = dict(game_cv)  # weekly CV == game-level CV
 
-    return HistoryModel(curve=curve, cv=cv)
+    # season-level CV: spread of a player's season ppg across seasons, relative
+    # to their own multi-season mean. Needs >= 2 qualifying seasons per player.
+    multi = (
+        established.group_by(["player_id", "position"])
+        .agg(
+            career_ppg=pl.col("ppg").mean(),
+            season_ppg_std=pl.col("ppg").std(),
+            n_seasons=pl.col("ppg").len(),
+        )
+        .filter(pl.col("n_seasons") >= 2)
+        .with_columns((pl.col("season_ppg_std") / pl.col("career_ppg")).alias("scv"))
+    )
+    scv_df = multi.group_by("position").agg(pl.col("scv").median().alias("v"))
+    season_cv = {r["position"]: r["v"] for r in scv_df.iter_rows(named=True)}
+
+    return HistoryModel(curve=curve, cv=cv, game_cv=game_cv, season_cv=season_cv)
