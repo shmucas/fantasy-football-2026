@@ -26,9 +26,9 @@ body {
 }
 
 #root {
-  max-width: 880px;
+  max-width: 1160px;
   margin: 0 auto;
-  padding: 64px 24px 96px;
+  padding: 48px 24px 96px;
   display: flex;
   flex-direction: column;
   align-items: center;

@@ -47,6 +47,14 @@ type Recommendation = {
   vorp: number;
 };
 
+type SamplePick = {
+  round: number;
+  player_id: string;
+  name: string;
+  position: string;
+  reason: string;
+};
+
 function App() {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -60,6 +68,10 @@ function App() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [posFilter, setPosFilter] = useState<string>("ALL");
   const [forcedPicks, setForcedPicks] = useState<{ round: number; playerId: string }[]>([]);
+  const [draftLog, setDraftLog] = useState<string[]>([]);
+  const [nextPickPlayer, setNextPickPlayer] = useState("");
+  const [teamNames, setTeamNames] = useState<Record<number, string>>({});
+  const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [view, setView] = useState<"draft" | "waivers">("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
@@ -96,18 +108,27 @@ function App() {
       .catch(() => setPlayers([]));
 
     setForcedPicks([]);
+    setDraftLog([]);
     setWaivers([]);
+    setLastSample([]);
+    fetch(`${API}/leagues/${activeKey}/draft-order`)
+      .then((r) => r.json())
+      .then(setTeamNames)
+      .catch(() => setTeamNames({}));
     loadResults(activeKey);
   }, [activeKey]);
 
   useEffect(() => {
     if (!activeKey) return;
-    const excluded = forcedPicks.filter((f) => f.playerId).map((f) => f.playerId);
+    const excluded = [
+      ...draftLog,
+      ...forcedPicks.filter((f) => f.playerId).map((f) => f.playerId),
+    ];
     fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`)
       .then((r) => r.json())
       .then(setRecommendations)
       .catch(() => setRecommendations([]));
-  }, [activeKey, forcedPicks]);
+  }, [activeKey, forcedPicks, draftLog]);
 
   useEffect(() => {
     if (!activeKey || view !== "waivers") return;
@@ -141,9 +162,12 @@ function App() {
           forced_picks: Object.fromEntries(
             forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
           ),
+          already_picked: draftLog,
         }),
       });
       if (!res.ok) throw new Error("Simulation failed to run");
+      const data = await res.json();
+      setLastSample(data.sample_roster ?? []);
       loadResults(activeKey);
     } catch (e) {
       setRunError(e instanceof Error ? e.message : "Simulation failed to run");
@@ -175,6 +199,28 @@ function App() {
   function removeForcedPick(index: number) {
     setForcedPicks((prev) => prev.filter((_, i) => i !== index));
   }
+
+  function slotForPick(pickIndex: number, numTeams: number): number {
+    const round = Math.floor(pickIndex / numTeams);
+    const posInRound = pickIndex % numTeams;
+    return round % 2 === 0 ? posInRound + 1 : numTeams - posInRound;
+  }
+
+  function logNextPick() {
+    if (!nextPickPlayer) return;
+    setDraftLog((prev) => (prev.includes(nextPickPlayer) ? prev : [...prev, nextPickPlayer]));
+    setNextPickPlayer("");
+  }
+
+  function undoLastPick() {
+    setDraftLog((prev) => prev.slice(0, -1));
+  }
+
+  const nextRound = active ? Math.floor(draftLog.length / active.num_teams) + 1 : 1;
+  const nextSlot = active ? slotForPick(draftLog.length, active.num_teams) : 1;
+  const draftedIds = new Set(draftLog);
+  const boardPickable = pickablePlayers.filter((p) => !draftedIds.has(p.player_id));
+  const availableWaivers = waivers.filter((p) => !draftedIds.has(p.player_id));
 
   const domainMin = results.length ? Math.min(...results.map((r) => r.p10)) : 0;
   const domainMax = results.length ? Math.max(...results.map((r) => r.p90)) : 1;
@@ -220,7 +266,7 @@ function App() {
 
       {active && view === "draft" && (
         <div className="grid">
-          <div className="card">
+          <div className="card full-width">
             <h2>Your Roster</h2>
             {rosterError && <p className="state-msg error">{rosterError}</p>}
             {!rosterError && !roster && <p className="state-msg">Loading...</p>}
@@ -271,6 +317,59 @@ function App() {
                     ))}
                 </ul>
               </>
+            )}
+          </div>
+
+          <div className="card full-width">
+            <h2>Live Draft Board</h2>
+            <p className="state-msg" style={{ marginBottom: 14 }}>
+              Log every pick as it happens in the real draft, yours and your opponents'. The
+              simulator treats these as fixed and only simulates picks that haven't happened yet.
+            </p>
+            <div className="draft-board-status">
+              <span>
+                On the clock: <strong>Round {nextRound}</strong>,{" "}
+                <strong>{teamNames[nextSlot] ?? `Slot ${nextSlot}`}</strong>
+              </span>
+              {nextSlot === mySlot && <span className="your-pick-badge">Your pick</span>}
+            </div>
+            <div className="force-row">
+              <select value={nextPickPlayer} onChange={(e) => setNextPickPlayer(e.target.value)}>
+                <option value="">Select who was picked...</option>
+                {boardPickable.map((p) => (
+                  <option key={p.player_id} value={p.player_id}>
+                    {p.name} ({p.position}, ADP {Number(p.adp).toFixed(1)})
+                  </option>
+                ))}
+              </select>
+              <button className="remove-pick-btn" onClick={logNextPick} title="Log pick">
+                ✓
+              </button>
+              <button className="remove-pick-btn" onClick={undoLastPick} title="Undo last pick">
+                ↺
+              </button>
+            </div>
+            {draftLog.length > 0 && (
+              <ol className="draft-log">
+                {draftLog.map((id, i) => {
+                  const slot = slotForPick(i, active.num_teams);
+                  return (
+                    <li key={i} className={slot === mySlot ? "mine" : ""}>
+                      <img
+                        className="avatar avatar-sm"
+                        src={`https://sleepercdn.com/content/nfl/players/${id}.jpg`}
+                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                        alt=""
+                      />
+                      <span className="draft-log-pick">
+                        R{Math.floor(i / active.num_teams) + 1}.{slot}
+                      </span>
+                      {playerById.get(id)?.name ?? id}
+                      <span className="draft-log-team">{teamNames[slot] ?? `Slot ${slot}`}</span>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
           </div>
 
@@ -333,26 +432,31 @@ function App() {
 
             {recommendations.length > 0 && (
               <div className="recommend-box">
-                <span className="recommend-label">Suggested next pick (by value over replacement)</span>
-                <ul className="player-list">
-                  {recommendations.map((r) => (
-                    <li
-                      key={r.player_id}
-                      className="player-chip recommend-chip"
-                      title={`${r.proj_points.toFixed(0)} projected points, ${r.vorp.toFixed(
-                        0
-                      )} above the last startable ${r.position} in this league - the best value left on the board.`}
-                    >
+                <span className="recommend-label">Suggested next pick, ranked by value over replacement</span>
+                <ol className="rank-list">
+                  {recommendations.map((r, i) => (
+                    <li key={r.player_id} className="rank-row">
+                      <span className="rank-num">{i + 1}</span>
                       <img
                         className="avatar avatar-sm"
                         src={`https://sleepercdn.com/content/nfl/players/${r.player_id}.jpg`}
                         onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                         alt=""
                       />
-                      {r.name} <span className="pos-pill">{r.position}</span>
+                      <div className="rank-body">
+                        <div className="rank-top-line">
+                          <span className="rank-name">{r.name}</span>
+                          <span className="pos-pill">{r.position}</span>
+                          <span className="rank-vorp">+{r.vorp.toFixed(0)} VORP</span>
+                        </div>
+                        <p className="rank-reason">
+                          {r.proj_points.toFixed(0)} proj. pts, {r.vorp.toFixed(0)} above the last
+                          startable {r.position} in this league - best value left on the board.
+                        </p>
+                      </div>
                     </li>
                   ))}
-                </ul>
+                </ol>
               </div>
             )}
 
@@ -360,6 +464,31 @@ function App() {
               {running ? "Simulating..." : "Run simulation"}
             </button>
             {runError && <p className="state-msg error">{runError}</p>}
+
+            {lastSample.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <h2>Why This Roster</h2>
+                <ul className="reason-list">
+                  {lastSample.map((p) => (
+                    <li key={p.round}>
+                      <div className="reason-head">
+                        <img
+                          className="avatar avatar-sm"
+                          src={`https://sleepercdn.com/content/nfl/players/${p.player_id}.jpg`}
+                          onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                          alt=""
+                        />
+                        <strong>
+                          R{p.round}: {p.name}
+                        </strong>
+                        <span className="pos-pill">{p.position}</span>
+                      </div>
+                      <p className="reason-text">{p.reason}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div style={{ marginTop: 22 }}>
               <h2>Scenario Results</h2>
@@ -429,7 +558,12 @@ function App() {
                   </thead>
                   <tbody>
                     {shownPlayers.map((p) => (
-                      <tr key={p.player_id}>
+                      <tr
+                        key={p.player_id}
+                        title={`${Number(p.proj_points).toFixed(0)} projected points at ADP ${Number(
+                          p.adp
+                        ).toFixed(1)} - goes off the board around pick ${Math.round(Number(p.adp))}.`}
+                      >
                         <td>
                           <img
                             className="avatar"
@@ -458,13 +592,14 @@ function App() {
         <div className="card full-width">
           <h2>Waiver Wire</h2>
           <p className="state-msg" style={{ marginBottom: 14 }}>
-            Players in the pool not currently rostered by anyone in {active.name}.
+            Players in the pool not currently rostered by anyone in {active.name}, and not already
+            taken in your logged live draft.
           </p>
           {waiversLoading && <p className="state-msg">Loading...</p>}
-          {!waiversLoading && waivers.length === 0 && (
+          {!waiversLoading && availableWaivers.length === 0 && (
             <p className="results-empty">No unrostered players found.</p>
           )}
-          {!waiversLoading && waivers.length > 0 && (
+          {!waiversLoading && availableWaivers.length > 0 && (
             <div className="players-scroll">
               <table className="players-table">
                 <thead>
@@ -477,8 +612,13 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {waivers.map((p) => (
-                    <tr key={p.player_id}>
+                  {availableWaivers.map((p) => (
+                    <tr
+                      key={p.player_id}
+                      title={`${Number(p.proj_points).toFixed(0)} projected points, unrostered - ADP ${Number(
+                        p.adp
+                      ).toFixed(1)} suggests they'd normally go earlier than this.`}
+                    >
                       <td>
                         <img
                           className="avatar"
