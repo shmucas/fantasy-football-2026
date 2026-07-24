@@ -29,6 +29,16 @@ type ScenarioStats = {
   p90: number;
 };
 
+type Player = {
+  player_id: string;
+  name: string;
+  position: string;
+  proj_points: string;
+  proj_stdev: string;
+  adp: string;
+  adp_stdev: string;
+};
+
 function App() {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -39,6 +49,8 @@ function App() {
   const [nSims, setNSims] = useState(500);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [posFilter, setPosFilter] = useState<string>("ALL");
 
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
@@ -63,6 +75,12 @@ function App() {
       })
       .then(setRoster)
       .catch((e) => setRosterError(e.message));
+
+    setPosFilter("ALL");
+    fetch(`${API}/leagues/${activeKey}/players`)
+      .then((r) => r.json())
+      .then(setPlayers)
+      .catch(() => setPlayers([]));
 
     loadResults(activeKey);
   }, [activeKey]);
@@ -97,6 +115,13 @@ function App() {
       setRunning(false);
     }
   }
+
+  const playerById = new Map(players.map((p) => [p.player_id, p]));
+  const positions = ["ALL", ...Array.from(new Set(players.map((p) => p.position))).sort()];
+  const shownPlayers = (posFilter === "ALL" ? players : players.filter((p) => p.position === posFilter))
+    .slice()
+    .sort((a, b) => Number(a.adp) - Number(b.adp))
+    .slice(0, 60);
 
   const domainMin = results.length ? Math.min(...results.map((r) => r.p10)) : 0;
   const domainMax = results.length ? Math.max(...results.map((r) => r.p90)) : 1;
@@ -151,7 +176,7 @@ function App() {
                   )}
                   {roster.player_ids.map((id) => (
                     <li key={id} className="player-chip">
-                      {id}
+                      {playerById.get(id)?.name ?? id}
                     </li>
                   ))}
                 </ul>
@@ -224,6 +249,50 @@ function App() {
                 </table>
               )}
             </div>
+          </div>
+
+          <div className="card full-width">
+            <h2>Player Pool</h2>
+            <div className="pos-filters">
+              {positions.map((pos) => (
+                <button
+                  key={pos}
+                  className={`pos-filter ${pos === posFilter ? "active" : ""}`}
+                  onClick={() => setPosFilter(pos)}
+                >
+                  {pos}
+                </button>
+              ))}
+            </div>
+            {players.length === 0 && (
+              <p className="results-empty">No player pool found for this league yet.</p>
+            )}
+            {players.length > 0 && (
+              <div className="players-scroll">
+                <table className="players-table">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Pos</th>
+                      <th>ADP</th>
+                      <th>Proj. Pts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shownPlayers.map((p) => (
+                      <tr key={p.player_id}>
+                        <td>{p.name}</td>
+                        <td>
+                          <span className="pos-pill">{p.position}</span>
+                        </td>
+                        <td>{Number(p.adp).toFixed(1)}</td>
+                        <td>{Number(p.proj_points).toFixed(0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
