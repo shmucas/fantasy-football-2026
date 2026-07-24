@@ -4,17 +4,27 @@ VORP (value over replacement) ranks players by how much better they are than
 the last starter-worthy player at their position, given this league's roster
 rules - not just raw projected points.
 
-Opponents are modeled as: softmax over ADP-implied value, with a penalty for
-positions they've already filled. This keeps simulated rosters realistic
-(no team drafting 5 RBs) without needing a full per-manager behavior model.
+Opponent model (gaussian draft slot): each opponent draws an effective draft
+slot per available player = ADP + Normal(0, sigma), and takes the player with
+the best (lowest) noisy slot, after a positional-need penalty. This mirrors how
+real drafts run down an ADP board with human noise, instead of compressing the
+whole board into a softmax where even a far-off player has some chance.
+
+sigma grows by round: small early (chalk, ~a few spots) and larger in later
+rounds where managers reach for sleepers. A player's own ADP stdev (from FFC)
+sets a floor, so genuinely volatile players stay volatile.
 """
 
-import math
 import random
 from collections import Counter
 from dataclasses import dataclass
 
 FLEX_ELIGIBLE = {"RB", "WR", "TE"}
+
+# Round-scaled draft-slot noise, in overall-pick units.
+SIGMA_BASE = 3.0        # round 1 noise floor (~+/- 3 spots)
+SIGMA_PER_ROUND = 1.3   # added std per round beyond the first
+NEED_PENALTY_SLOTS = 25.0  # slots added once a position's starting need is met
 
 
 @dataclass(frozen=True)
@@ -25,6 +35,7 @@ class Player:
     proj_points: float
     proj_stdev: float
     adp: float
+    adp_stdev: float = 0.0
 
 
 def replacement_levels(players: list[Player], roster_positions: list[str], num_teams: int) -> dict[str, float]:
@@ -74,15 +85,26 @@ def vorp(player: Player, replacement: dict[str, float]) -> float:
     return player.proj_points - replacement.get(player.position, 0)
 
 
+def round_sigma(current_round: int) -> float:
+    """Draft-slot noise (std, in pick units) for a given round."""
+    return SIGMA_BASE + SIGMA_PER_ROUND * (current_round - 1)
+
+
 def opponent_pick(
     available: list[Player],
     roster_so_far: list[Player],
     roster_positions: list[str],
     rng: random.Random,
-    temperature: float = 6.0,
+    current_round: int,
 ) -> Player:
-    """Pick one player for a simulated opponent: ADP-value softmax, penalized
-    for positions already over-filled relative to starting need."""
+    """Simulated opponent pick via noisy draft slot.
+
+    effective_slot = ADP + Normal(0, sigma) + need_penalty; the opponent takes
+    the smallest effective_slot. sigma is the larger of the round noise and the
+    player's own ADP stdev, so both round-level reaching and per-player
+    volatility show up. The need penalty pushes back positions whose starting
+    requirement is already filled, keeping rosters realistic.
+    """
     need_slots = Counter(slot for slot in roster_positions if slot != "BN")
     filled = Counter(p.position for p in roster_so_far)
 
@@ -90,13 +112,15 @@ def opponent_pick(
         starter_need = need_slots.get(pos, 0)
         flex_capacity = need_slots.get("FLEX", 0) if pos in FLEX_ELIGIBLE else 0
         room = starter_need + flex_capacity - filled.get(pos, 0)
-        return 0.0 if room > 0 else -8.0  # soft penalty once starting need is met
+        return 0.0 if room > 0 else NEED_PENALTY_SLOTS
 
-    scores = []
+    base_sigma = round_sigma(current_round)
+    best_player = None
+    best_slot = float("inf")
     for p in available:
-        adp_value = -p.adp  # lower ADP (drafted earlier) = higher value
-        scores.append(adp_value / temperature + need_penalty(p.position) + rng.gauss(0, 1.5))
-
-    max_score = max(scores)
-    weights = [math.exp(s - max_score) for s in scores]
-    return rng.choices(available, weights=weights, k=1)[0]
+        sigma = max(base_sigma, p.adp_stdev)
+        effective_slot = p.adp + rng.gauss(0, sigma) + need_penalty(p.position)
+        if effective_slot < best_slot:
+            best_slot = effective_slot
+            best_player = p
+    return best_player

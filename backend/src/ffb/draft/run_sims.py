@@ -27,6 +27,7 @@ def load_players(csv_path: Path) -> list[Player]:
                     proj_points=float(row["proj_points"]),
                     proj_stdev=float(row["proj_stdev"]),
                     adp=float(row["adp"]),
+                    adp_stdev=float(row.get("adp_stdev", 0.0) or 0.0),
                 )
             )
     return players
@@ -63,7 +64,11 @@ def main() -> None:
     parser.add_argument("--my-slot", type=int, required=True, help="Your draft slot (1-indexed)")
     parser.add_argument("--rounds", type=int, default=15)
     parser.add_argument("--n-sims", type=int, default=2000)
-    parser.add_argument("--players-csv", default=str(DATA_DIR / "players_sample.csv"))
+    parser.add_argument(
+        "--players-csv",
+        default=None,
+        help="Defaults to data/pools/<league>.csv (built by ffb.nfldata.build).",
+    )
     parser.add_argument(
         "--force",
         action="append",
@@ -74,7 +79,8 @@ def main() -> None:
     args = parser.parse_args()
 
     league = LEAGUES[args.league]
-    players = load_players(Path(args.players_csv))
+    csv_path = Path(args.players_csv) if args.players_csv else DATA_DIR / "pools" / f"{league.key}.csv"
+    players = load_players(csv_path)
     forced = dict(item.split(":") for item in args.force)
     forced = {int(k): v for k, v in forced.items()}
 

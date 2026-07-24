@@ -53,7 +53,7 @@ def simulate_draft(
         if team_slot == my_team_slot and current_round in forced_picks:
             pick = reserved[forced_picks[current_round]]
         else:
-            pick = opponent_pick(available, rosters[team_slot], roster_positions, rng)
+            pick = opponent_pick(available, rosters[team_slot], roster_positions, rng, current_round)
             available.remove(pick)
         rosters[team_slot].append(pick)
         pick_order.append((team_slot, pick))
