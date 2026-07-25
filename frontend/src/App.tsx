@@ -138,14 +138,10 @@ type SessionUser = {
 // A plain browser fetch failure (network down, CORS rejection, backend
 // unreachable) throws a bare TypeError with no useful detail - surface
 // something a user can act on instead of the raw "Failed to fetch".
-async function postJSON(path: string, body: unknown): Promise<unknown> {
+async function requestJSON(path: string, init?: RequestInit): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(`${API}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    res = await fetch(`${API}${path}`, init);
   } catch {
     throw new Error("Can't reach the server right now - check your connection and try again.");
   }
@@ -154,6 +150,18 @@ async function postJSON(path: string, body: unknown): Promise<unknown> {
     throw new Error((parsed as { detail?: string } | null)?.detail ?? "Something went wrong");
   }
   return parsed;
+}
+
+function getJSON(path: string): Promise<unknown> {
+  return requestJSON(path);
+}
+
+function postJSON(path: string, body: unknown): Promise<unknown> {
+  return requestJSON(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 const DEFAULT_SEASON = "2026";
@@ -196,12 +204,8 @@ function SleeperConnect({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/sleeper/user/${encodeURIComponent(username.trim())}`);
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.detail ?? "Couldn't find that Sleeper user");
-      }
-      setPending(await res.json());
+      const found = await getJSON(`/sleeper/user/${encodeURIComponent(username.trim())}`);
+      setPending(found as SessionUser);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't find that Sleeper user");
     } finally {
