@@ -100,6 +100,11 @@ type Recommendation = {
   reason: string;
 };
 
+type WaiverRecommendation = Recommendation & {
+  nfl_team: string;
+  fills_need: boolean;
+};
+
 type SamplePick = {
   round: number;
   player_id: string;
@@ -335,6 +340,8 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims">("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
   const [waiversLoading, setWaiversLoading] = useState(false);
+  const [waiverRecs, setWaiverRecs] = useState<WaiverRecommendation[]>([]);
+  const [waiverRecsLoading, setWaiverRecsLoading] = useState(false);
   const [weeks, setWeeks] = useState<number[]>([]);
   const [scheduleWeek, setScheduleWeek] = useState<number>(1);
   const [games, setGames] = useState<Game[]>([]);
@@ -348,7 +355,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
   useEffect(() => {
-    fetch(`${API}/leagues`)
+    fetch(`${API}/leagues`, { credentials: "include" })
       .then((r) => r.json())
       .then((data: LeagueConfig[]) => {
         setLeagues(data);
@@ -361,7 +368,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     if (!activeKey) return;
     setRoster(null);
     setRosterError(null);
-    fetch(`${API}/leagues/${activeKey}/roster`)
+    fetch(`${API}/leagues/${activeKey}/roster`, { credentials: "include" })
       .then((r) => {
         if (!r.ok) throw new Error("Couldn't reach Sleeper for this league");
         return r.json();
@@ -370,7 +377,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
       .catch((e) => setRosterError(e.message));
 
     setPosFilter("ALL");
-    fetch(`${API}/leagues/${activeKey}/players`)
+    fetch(`${API}/leagues/${activeKey}/players`, { credentials: "include" })
       .then((r) => r.json())
       .then(setPlayers)
       .catch(() => setPlayers([]));
@@ -381,7 +388,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setLastSample([]);
     setSeasonSim(null);
     setSeasonError(null);
-    fetch(`${API}/leagues/${activeKey}/draft-order`)
+    fetch(`${API}/leagues/${activeKey}/draft-order`, { credentials: "include" })
       .then((r) => r.json())
       .then(setTeamNames)
       .catch(() => setTeamNames({}));
@@ -394,7 +401,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
       ...draftLog,
       ...forcedPicks.filter((f) => f.playerId).map((f) => f.playerId),
     ];
-    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`)
+    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`, { credentials: "include" })
       .then((r) => r.json())
       .then(setRecommendations)
       .catch(() => setRecommendations([]));
@@ -403,16 +410,23 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   useEffect(() => {
     if (!activeKey || view !== "waivers") return;
     setWaiversLoading(true);
-    fetch(`${API}/leagues/${activeKey}/waivers`)
+    fetch(`${API}/leagues/${activeKey}/waivers`, { credentials: "include" })
       .then((r) => r.json())
       .then(setWaivers)
       .catch(() => setWaivers([]))
       .finally(() => setWaiversLoading(false));
+
+    setWaiverRecsLoading(true);
+    fetch(`${API}/leagues/${activeKey}/waivers/recommend`, { credentials: "include" })
+      .then((r) => r.json())
+      .then(setWaiverRecs)
+      .catch(() => setWaiverRecs([]))
+      .finally(() => setWaiverRecsLoading(false));
   }, [activeKey, view]);
 
   useEffect(() => {
     if (!activeKey || view !== "schedule") return;
-    fetch(`${API}/leagues/${activeKey}/schedule/weeks`)
+    fetch(`${API}/leagues/${activeKey}/schedule/weeks`, { credentials: "include" })
       .then((r) => r.json())
       .then((data: number[]) => {
         setWeeks(data);
@@ -425,7 +439,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   useEffect(() => {
     if (!activeKey || view !== "schedule") return;
     setScheduleLoading(true);
-    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`)
+    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`, { credentials: "include" })
       .then((r) => r.json())
       .then(setGames)
       .catch(() => setGames([]))
@@ -433,7 +447,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   }, [activeKey, view, scheduleWeek]);
 
   function loadResults(key: string) {
-    fetch(`${API}/leagues/${key}/results`)
+    fetch(`${API}/leagues/${key}/results`, { credentials: "include" })
       .then((r) => r.json())
       .then(setResults)
       .catch(() => setResults([]));
@@ -447,6 +461,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
       const res = await fetch(`${API}/sims/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           league_key: activeKey,
           my_slot: mySlot,
@@ -476,6 +491,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
       const res = await fetch(`${API}/leagues/${activeKey}/sims/season`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           my_slot: mySlot,
           n_samples: nSamples,
@@ -1016,7 +1032,45 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
       )}
 
       {active && view === "waivers" && (
-        <div className="card full-width">
+        <div className="grid">
+          <div className="card full-width">
+            <h2>Recommended Pickups</h2>
+            <p className="state-msg" style={{ marginBottom: 14 }}>
+              Best available players for your roster, ranked by value over replacement.
+              Players marked "need" would fill a starting spot you don't currently have covered.
+            </p>
+            {waiverRecsLoading && <p className="state-msg">Loading...</p>}
+            {!waiverRecsLoading && waiverRecs.length === 0 && (
+              <p className="results-empty">No recommendations available.</p>
+            )}
+            {!waiverRecsLoading && waiverRecs.length > 0 && (
+              <ol className="rank-list">
+                {waiverRecs.map((r, i) => (
+                  <li key={r.player_id} className="rank-row">
+                    <span className="rank-num">{i + 1}</span>
+                    <img
+                      className="avatar avatar-sm"
+                      src={avatarUrl(r.player_id, r.position, r.name)}
+                      onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                      alt=""
+                    />
+                    <div className="rank-body">
+                      <div className="rank-top-line">
+                        <span className="rank-name">{r.name}</span>
+                        <span className="pos-pill">{r.position}</span>
+                        {r.nfl_team && <span className="pos-pill">{normalizeTeam(r.nfl_team)}</span>}
+                        <span className="rank-vorp">+{r.vorp.toFixed(0)} VORP</span>
+                        {r.fills_need && <span className="your-pick-badge">Need</span>}
+                      </div>
+                      <p className="rank-reason">{r.reason}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <div className="card full-width">
           <h2>Waiver Wire</h2>
           <p className="state-msg" style={{ marginBottom: 14 }}>
             Players in the pool not currently rostered by anyone in {active.name}, and not already
@@ -1084,6 +1138,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
               </table>
             </div>
           )}
+          </div>
         </div>
       )}
 
