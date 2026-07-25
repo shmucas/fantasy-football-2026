@@ -187,6 +187,109 @@ function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
   );
 }
 
+type WinBucket = {
+  wins: number;
+  pct: number;
+};
+
+type SeasonScenario = {
+  scenario: string;
+  forced_picks: string[];
+  exp_wins: number;
+  win_stdev: number;
+  win_distribution: WinBucket[];
+  threshold_wins: number;
+  threshold_pct: number;
+  avg_points: number;
+  points_p10: number;
+  points_p50: number;
+  points_p90: number;
+};
+
+type SeasonSim = {
+  league_key: string;
+  my_slot: number;
+  n_samples: number;
+  rounds: number;
+  reg_season_weeks: number;
+  scenarios: SeasonScenario[];
+};
+
+const SERIES = ["#2a78d6", "#eb6834"];
+
+function scenarioLabel(s: SeasonScenario): string {
+  return s.scenario === "baseline"
+    ? "Baseline draft"
+    : `With my forced picks (${s.forced_picks.join(", ")})`;
+}
+
+function WinDistributionChart({ scenarios }: { scenarios: SeasonScenario[] }) {
+  const width = 720;
+  const height = 260;
+  const pad = { top: 16, right: 12, bottom: 34, left: 40 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const buckets = scenarios[0].win_distribution.length;
+  const maxPct = Math.max(...scenarios.flatMap((s) => s.win_distribution.map((b) => b.pct)), 5);
+  const yMax = Math.ceil(maxPct / 5) * 5;
+  const groupW = plotW / buckets;
+  const barW = Math.max(3, (groupW - 6) / scenarios.length - 2);
+  const ticks = [0, yMax / 2, yMax];
+
+  return (
+    <svg className="chart" viewBox={`0 0 ${width} ${height}`} role="img">
+      {ticks.map((t) => {
+        const y = pad.top + plotH - (t / yMax) * plotH;
+        return (
+          <g key={t}>
+            <line className="chart-grid" x1={pad.left} x2={width - pad.right} y1={y} y2={y} />
+            <text className="chart-axis-label" x={pad.left - 8} y={y + 4} textAnchor="end">
+              {t.toFixed(0)}%
+            </text>
+          </g>
+        );
+      })}
+      {scenarios[0].win_distribution.map((b, i) => (
+        <text
+          key={b.wins}
+          className="chart-axis-label"
+          x={pad.left + groupW * i + groupW / 2}
+          y={height - 12}
+          textAnchor="middle"
+        >
+          {b.wins}
+        </text>
+      ))}
+      {scenarios.map((s, si) =>
+        s.win_distribution.map((b, i) => {
+          const h = (b.pct / yMax) * plotH;
+          const x = pad.left + groupW * i + 3 + si * (barW + 2);
+          return (
+            <rect
+              key={`${s.scenario}-${b.wins}`}
+              x={x}
+              y={pad.top + plotH - h}
+              width={barW}
+              height={Math.max(h, 0)}
+              rx={2}
+              fill={SERIES[si % SERIES.length]}
+            >
+              <title>{`${scenarioLabel(s)}: ${b.wins} wins in ${b.pct.toFixed(1)}% of seasons`}</title>
+            </rect>
+          );
+        })
+      )}
+      <line
+        className="chart-axis"
+        x1={pad.left}
+        x2={width - pad.right}
+        y1={pad.top + plotH}
+        y2={pad.top + plotH}
+      />
+    </svg>
+  );
+}
+
 function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [checking, setChecking] = useState(true);
@@ -229,7 +332,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
   const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [view, setView] = useState<"draft" | "waivers" | "schedule">("draft");
+  const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims">("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
   const [waiversLoading, setWaiversLoading] = useState(false);
   const [weeks, setWeeks] = useState<number[]>([]);
@@ -237,6 +340,10 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const [games, setGames] = useState<Game[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [seasonSim, setSeasonSim] = useState<SeasonSim | null>(null);
+  const [seasonRunning, setSeasonRunning] = useState(false);
+  const [seasonError, setSeasonError] = useState<string | null>(null);
+  const [nSamples, setNSamples] = useState(300);
 
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
@@ -272,6 +379,8 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setDraftLog([]);
     setWaivers([]);
     setLastSample([]);
+    setSeasonSim(null);
+    setSeasonError(null);
     fetch(`${API}/leagues/${activeKey}/draft-order`)
       .then((r) => r.json())
       .then(setTeamNames)
@@ -356,6 +465,32 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
       setRunError(e instanceof Error ? e.message : "Simulation failed to run");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function runSeasonSim() {
+    if (!activeKey) return;
+    setSeasonRunning(true);
+    setSeasonError(null);
+    try {
+      const res = await fetch(`${API}/leagues/${activeKey}/sims/season`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          my_slot: mySlot,
+          n_samples: nSamples,
+          forced_picks: Object.fromEntries(
+            forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
+          ),
+          already_picked: draftLog,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail ?? "Season simulation failed");
+      setSeasonSim(await res.json());
+    } catch (e) {
+      setSeasonError(e instanceof Error ? e.message : "Season simulation failed");
+    } finally {
+      setSeasonRunning(false);
     }
   }
 
@@ -522,6 +657,12 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
             onClick={() => setView("schedule")}
           >
             Schedule
+          </button>
+          <button
+            className={`subtab ${view === "sims" ? "active" : ""}`}
+            onClick={() => setView("sims")}
+          >
+            Simulations
           </button>
         </div>
       )}
@@ -1001,6 +1142,157 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+
+      {active && view === "sims" && (
+        <div className="grid">
+          <div className="card full-width">
+            <h2>Season Simulation</h2>
+            <p className="state-msg" style={{ marginBottom: 14 }}>
+              Simulates the rest of the draft, then plays a full season of head-to-head matchups:
+              projected points become wins. Your logged live picks and any forced picks from the
+              Draft tab are carried over.
+            </p>
+            <div className="form-row">
+              <div className="field">
+                <label>My draft slot</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={active.num_teams}
+                  value={mySlot}
+                  onChange={(e) => setMySlot(Number(e.target.value))}
+                />
+              </div>
+              <div className="field">
+                <label>Simulated seasons</label>
+                <input
+                  type="number"
+                  min={50}
+                  max={2000}
+                  step={50}
+                  value={nSamples}
+                  onChange={(e) => setNSamples(Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <button className="run-btn" onClick={runSeasonSim} disabled={seasonRunning}>
+              {seasonRunning ? "Simulating seasons..." : "Run season simulation"}
+            </button>
+            {seasonError && <p className="state-msg error">{seasonError}</p>}
+            {!seasonSim && !seasonRunning && !seasonError && (
+              <p className="results-empty">No season simulation run yet for this league.</p>
+            )}
+          </div>
+
+          {seasonSim && (
+            <>
+              <div className="card full-width">
+                <h2>Expected Season</h2>
+                <div className="stat-tiles">
+                  {seasonSim.scenarios.map((s, i) => (
+                    <div className="stat-tile" key={s.scenario}>
+                      <span className="stat-tile-name">
+                        <span
+                          className="series-swatch"
+                          style={{ background: SERIES[i % SERIES.length] }}
+                        />
+                        {scenarioLabel(s)}
+                      </span>
+                      <strong className="stat-hero">{s.exp_wins.toFixed(2)}</strong>
+                      <span className="stat-tile-unit">
+                        expected wins in {seasonSim.reg_season_weeks} weeks, spread ±{" "}
+                        {s.win_stdev.toFixed(2)} across seasons
+                      </span>
+                      <div className="stat-tile-row">
+                        <span>{s.threshold_wins}+ win seasons</span>
+                        <strong>{s.threshold_pct.toFixed(1)}%</strong>
+                      </div>
+                      <div className="stat-tile-row">
+                        <span>Average points for</span>
+                        <strong>{s.avg_points.toFixed(0)}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card full-width">
+                <h2>Win Distribution</h2>
+                <p className="state-msg" style={{ marginBottom: 10 }}>
+                  Share of {seasonSim.n_samples} simulated seasons ending on each win total, over{" "}
+                  {seasonSim.rounds} drafted rounds.
+                </p>
+                {seasonSim.scenarios.length > 1 && (
+                  <div className="chart-legend">
+                    {seasonSim.scenarios.map((s, i) => (
+                      <span key={s.scenario} className="chart-legend-item">
+                        <span
+                          className="series-swatch"
+                          style={{ background: SERIES[i % SERIES.length] }}
+                        />
+                        {scenarioLabel(s)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <WinDistributionChart scenarios={seasonSim.scenarios} />
+                <p className="chart-caption">Regular-season wins</p>
+              </div>
+
+              <div className="card full-width">
+                <h2>Season Points Range</h2>
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>Scenario</th>
+                      <th>Exp. wins</th>
+                      <th>{seasonSim.scenarios[0].threshold_wins}+ wins</th>
+                      <th>Avg pts</th>
+                      <th style={{ width: 220 }}>P10 - P90 points</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {seasonSim.scenarios.map((s, i) => {
+                      const lo = Math.min(...seasonSim.scenarios.map((x) => x.points_p10));
+                      const hi = Math.max(...seasonSim.scenarios.map((x) => x.points_p90));
+                      const span = Math.max(1, hi - lo);
+                      return (
+                        <tr key={s.scenario}>
+                          <td className="scenario-name">{scenarioLabel(s)}</td>
+                          <td>{s.exp_wins.toFixed(2)}</td>
+                          <td>{s.threshold_pct.toFixed(1)}%</td>
+                          <td>{s.avg_points.toFixed(0)}</td>
+                          <td>
+                            <div
+                              className="range-bar"
+                              title={`P10 ${s.points_p10.toFixed(0)}, median ${s.points_p50.toFixed(
+                                0
+                              )}, P90 ${s.points_p90.toFixed(0)} points`}
+                            >
+                              <div
+                                className="fill"
+                                style={{
+                                  left: `${((s.points_p10 - lo) / span) * 100}%`,
+                                  width: `${Math.max(4, ((s.points_p90 - s.points_p10) / span) * 100)}%`,
+                                  background: SERIES[i % SERIES.length],
+                                }}
+                              />
+                              <div
+                                className="median-tick"
+                                style={{ left: `${((s.points_p50 - lo) / span) * 100}%` }}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
