@@ -1,13 +1,13 @@
 # Dependencies for the Vercel Python Function in api/index.py.
-# Mirrors backend/pyproject.toml (uvicorn omitted - Vercel serves the ASGI app).
+#
+# Deliberately smaller than backend/pyproject.toml: this is only what serving a
+# request needs. The offline pool/snapshot build pulls nflverse data with
+# nflreadpy + polars (~215MB of wheels), which runs locally and would otherwise
+# push the function past Vercel's 500MB bundle limit. Keep it that way - if the
+# API starts needing a new import, add it here too.
 fastapi>=0.115.0
 httpx>=0.28.1
-nflreadpy>=0.1.5
 numpy>=2.5.1
 pydantic>=2.13.4
-pydantic-settings>=2.14.2
-python-dotenv>=1.2.2
 psycopg[binary]>=3.2.0
-pyyaml>=6.0.3
-scipy>=1.18.0
 sqlalchemy>=2.0.51

@@ -18,6 +18,8 @@ Two variance levers:
     helps most. Game draws are iid (they average out).
 """
 
+from statistics import NormalDist
+
 import numpy as np
 
 from ffb.draft.sim import select_starters
@@ -50,9 +52,12 @@ def season_z_matrix(n_samples: int, n_players: int, seed: int = 0) -> np.ndarray
     """(n_samples x n_players) standard-normal season factors, stratified per
     player (1-D Latin hypercube) so each player's draws span the distribution
     evenly across samples. Deterministic in (seed, player index) -> gives CRN."""
-    from scipy.stats import norm
-
-    quantiles = norm.ppf((np.arange(n_samples) + 0.5) / n_samples)
+    # stdlib inverse normal CDF: matches scipy's norm.ppf to ~1e-15 here, and
+    # keeps scipy (110MB+) out of the deployed serverless bundle.
+    inv_cdf = NormalDist().inv_cdf
+    quantiles = np.array(
+        [inv_cdf((i + 0.5) / n_samples) for i in range(n_samples)]
+    )
     out = np.empty((n_samples, n_players))
     for p in range(n_players):
         rng = np.random.default_rng((seed, p))
