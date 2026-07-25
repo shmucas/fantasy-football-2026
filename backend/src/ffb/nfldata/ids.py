@@ -28,3 +28,11 @@ def sleeper_id_lookup() -> dict[tuple[str, str], str]:
         key = (normalize_name(row["name"]), row["position"])
         lookup[key] = str(row["sleeper_id"])
     return lookup
+
+
+def sleeper_team_lookup() -> dict[str, str]:
+    """sleeper_id -> current NFL team abbreviation, from nflverse's ff_playerids."""
+    ids = nfl.load_ff_playerids().filter(
+        pl.col("sleeper_id").is_not_null() & pl.col("team").is_not_null()
+    )
+    return {str(row["sleeper_id"]): row["team"] for row in ids.iter_rows(named=True)}

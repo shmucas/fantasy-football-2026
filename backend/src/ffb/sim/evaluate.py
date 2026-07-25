@@ -24,12 +24,13 @@ DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 _G: dict = {}
 
 
-def _init_worker(players, league, my_slot, rounds, n_samples, schedule):
+def _init_worker(players, league, my_slot, rounds, n_samples, schedule, already_picked=None):
     _G["players"] = players
     _G["league"] = league
     _G["my_slot"] = my_slot
     _G["rounds"] = rounds
     _G["schedule"] = schedule
+    _G["already_picked"] = already_picked or []
     _G["model"] = SeasonModel(players, n_samples, seed=0)
 
 
@@ -39,7 +40,7 @@ def _run_sample(task):
     rng = random.Random(sample_i)  # CRN: same seed -> same opponent noise across scenarios
     result = simulate_draft(
         g["players"], g["league"].num_teams, g["rounds"],
-        g["league"].roster_positions, g["my_slot"], rng, forced_picks,
+        g["league"].roster_positions, g["my_slot"], rng, forced_picks, g["already_picked"],
     )
     return g["model"].evaluate(
         result.rosters, g["league"].roster_positions, g["my_slot"], g["schedule"], sample_i
@@ -51,6 +52,28 @@ def run_scenario(pool, forced_picks, n_samples):
     wins = [w for w, _ in results]
     points_for = [pf for _, pf in results]
     return wins, points_for
+
+
+def run_scenarios(
+    players,
+    league,
+    my_slot: int,
+    rounds: int,
+    n_samples: int,
+    scenarios: dict[str, dict[int, str]],
+    already_picked: list[str] | None = None,
+) -> dict[str, tuple[list[int], list[float]]]:
+    """Run every scenario against one shared season model, so the comparison
+    uses common random numbers. Returns label -> (wins, points_for)."""
+    schedule = round_robin(league.num_teams, REG_SEASON_WEEKS)
+    with Pool(
+        initializer=_init_worker,
+        initargs=(players, league, my_slot, rounds, n_samples, schedule, already_picked or []),
+    ) as pool:
+        return {
+            label: run_scenario(pool, forced, n_samples)
+            for label, forced in scenarios.items()
+        }
 
 
 def summarize(wins, points_for, playoff_threshold):
@@ -79,7 +102,6 @@ def main() -> None:
 
     league = LEAGUES[args.league]
     players = load_players(DATA_DIR / "pools" / f"{league.key}.csv")
-    schedule = round_robin(league.num_teams, REG_SEASON_WEEKS)
 
     scenarios: dict[str, dict] = {"baseline": {}}
     for item in args.force:
@@ -93,17 +115,15 @@ def main() -> None:
           f"{league.num_teams} teams, {REG_SEASON_WEEKS} reg weeks\n")
     print(f"{'scenario':<34}{'exp wins':>10}{'win sd':>9}{'>= ' + str(playoff_threshold) + 'W%':>9}{'avg PF':>9}")
 
-    with Pool(
-        initializer=_init_worker,
-        initargs=(players, league, args.my_slot, args.rounds, args.n_samples, schedule),
-    ) as pool:
-        for label, forced in scenarios.items():
-            wins, pf = run_scenario(pool, forced, args.n_samples)
-            s = summarize(wins, pf, playoff_threshold)
-            forced_desc = ", ".join(f"R{r}:{name.get(p, p)}" for r, p in forced.items())
-            tag = f"{label} ({forced_desc})" if forced_desc else label
-            print(f"{tag:<34}{s['exp_wins']:>10.2f}{s['win_stdev']:>9.2f}"
-                  f"{s['playoff_pct']:>8.1f}%{s['avg_pf']:>9.0f}")
+    runs = run_scenarios(
+        players, league, args.my_slot, args.rounds, args.n_samples, scenarios
+    )
+    for label, (wins, pf) in runs.items():
+        s = summarize(wins, pf, playoff_threshold)
+        forced_desc = ", ".join(f"R{r}:{name.get(p, p)}" for r, p in scenarios[label].items())
+        tag = f"{label} ({forced_desc})" if forced_desc else label
+        print(f"{tag:<34}{s['exp_wins']:>10.2f}{s['win_stdev']:>9.2f}"
+              f"{s['playoff_pct']:>8.1f}%{s['avg_pf']:>9.0f}")
 
 
 if __name__ == "__main__":

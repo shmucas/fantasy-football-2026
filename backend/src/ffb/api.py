@@ -1,28 +1,55 @@
 """HTTP API for the frontend: league/roster data plus draft-sim triggering."""
 
 import csv
+import os
 import random
 import statistics
+from collections import Counter
+from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from ffb.auth import router as auth_router
+from ffb.db import init_db
 from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
 from ffb.leagues import LEAGUES, SLEEPER_USER_ID
+from ffb.nfldata.ids import sleeper_team_lookup
+from ffb.nfldata.schedule import available_weeks, week_schedule
+from ffb.sim.evaluate import run_scenarios, summarize
+from ffb.sim.season import REG_SEASON_WEEKS
 from ffb.sleeper_client import SleeperClient
 
-app = FastAPI(title="FFB API")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="FFB API", lifespan=lifespan)
+
+FRONTEND_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("FRONTEND_ORIGIN", "").split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=FRONTEND_ORIGINS,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 
 @app.get("/api/leagues")
@@ -92,9 +119,13 @@ def run_sim(req: SimRequest) -> SimResponse:
         raise HTTPException(400, "already_picked contains the same player more than once")
 
     players = load_players(pool_path)
+    # A pool smaller than num_teams * rounds would run the draft dry mid-simulation.
+    rounds = min(req.rounds, len(players) // league.num_teams)
+    if rounds < 1:
+        raise HTTPException(400, "Player pool is too small for this league")
     try:
         scores = run_scenario(
-            players, league.num_teams, req.rounds, league.roster_positions,
+            players, league.num_teams, rounds, league.roster_positions,
             req.my_slot, req.forced_picks, req.n_sims, already_picked=req.already_picked,
         )
     except ValueError as e:
@@ -113,14 +144,14 @@ def run_sim(req: SimRequest) -> SimResponse:
         writer.writerow(["projected_points"])
         writer.writerows([[s] for s in scores])
 
-    sample = _sample_roster_with_reasons(players, league, req)
+    sample = _sample_roster_with_reasons(players, league, req, rounds)
     return SimResponse(scenario=tag, sample_roster=sample, **_summarize(scores))
 
 
-def _sample_roster_with_reasons(players, league, req: SimRequest) -> list[SamplePick]:
+def _sample_roster_with_reasons(players, league, req: SimRequest, rounds: int) -> list[SamplePick]:
     """Runs one representative draft and explains each of our picks."""
     result = simulate_draft(
-        players, league.num_teams, req.rounds, league.roster_positions,
+        players, league.num_teams, rounds, league.roster_positions,
         req.my_slot, random.Random(0), req.forced_picks, req.already_picked,
     )
     replacement = replacement_levels(players, league.roster_positions, league.num_teams)
@@ -149,6 +180,122 @@ def _sample_roster_with_reasons(players, league, req: SimRequest) -> list[Sample
             )
         )
     return picks
+
+
+class SeasonSimRequest(BaseModel):
+    my_slot: int
+    n_samples: int = 300
+    rounds: int = 15
+    forced_picks: dict[int, str] = {}
+    already_picked: list[str] = []
+
+
+class WinBucket(BaseModel):
+    wins: int
+    pct: float
+
+
+class SeasonScenario(BaseModel):
+    scenario: str
+    forced_picks: list[str] = []
+    exp_wins: float
+    win_stdev: float
+    win_distribution: list[WinBucket]
+    threshold_wins: int
+    threshold_pct: float
+    avg_points: float
+    points_p10: float
+    points_p50: float
+    points_p90: float
+
+
+class SeasonSimResponse(BaseModel):
+    league_key: str
+    my_slot: int
+    n_samples: int
+    rounds: int
+    reg_season_weeks: int
+    scenarios: list[SeasonScenario]
+
+
+@app.post("/api/leagues/{league_key}/sims/season", response_model=SeasonSimResponse)
+def run_season_sim(league_key: str, req: SeasonSimRequest) -> SeasonSimResponse:
+    """Season simulator: turns projected points into expected wins for our team."""
+    league = _get_league(league_key)
+    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
+    if not pool_path.exists():
+        raise HTTPException(404, f"No player pool found at {pool_path}")
+    if not 1 <= req.my_slot <= league.num_teams:
+        raise HTTPException(400, f"my_slot must be between 1 and {league.num_teams}")
+    if req.n_samples < 50 or req.n_samples > 2000:
+        raise HTTPException(400, "n_samples must be between 50 and 2000")
+
+    players = load_players(pool_path)
+    name_by_id = {p.player_id: p.name for p in players}
+    # A pool smaller than num_teams * rounds would run the draft dry mid-simulation.
+    rounds = min(req.rounds, len(players) // league.num_teams)
+    if rounds < 1:
+        raise HTTPException(400, "Player pool is too small for this league")
+    out_of_range = sorted(r for r in req.forced_picks if not 1 <= r <= rounds)
+    if out_of_range:
+        raise HTTPException(
+            400, f"Forced pick rounds {out_of_range} are outside the {rounds} simulated rounds"
+        )
+
+    scenarios: dict[str, dict[int, str]] = {}
+    labels = ["baseline"]
+    scenarios["baseline"] = {}
+    if req.forced_picks:
+        labels.append("forced")
+        scenarios["forced"] = req.forced_picks
+
+    try:
+        runs = run_scenarios(
+            players, league, req.my_slot, rounds, req.n_samples,
+            scenarios, already_picked=req.already_picked,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    threshold = REG_SEASON_WEEKS // 2 + 1
+    out = []
+    for label in labels:
+        wins, points_for = runs[label]
+        stats = summarize(wins, points_for, threshold)
+        counts = Counter(wins)
+        out.append(
+            SeasonScenario(
+                scenario=label,
+                forced_picks=[
+                    f"R{r}: {name_by_id.get(pid, pid)}"
+                    for r, pid in sorted(scenarios[label].items())
+                ],
+                exp_wins=stats["exp_wins"],
+                win_stdev=stats["win_stdev"],
+                win_distribution=[
+                    WinBucket(wins=w, pct=100.0 * counts.get(w, 0) / len(wins))
+                    for w in range(REG_SEASON_WEEKS + 1)
+                ],
+                threshold_wins=threshold,
+                threshold_pct=stats["playoff_pct"],
+                avg_points=stats["avg_pf"],
+                **_points_percentiles(points_for),
+            )
+        )
+    return SeasonSimResponse(
+        league_key=league.key, my_slot=req.my_slot, n_samples=req.n_samples, rounds=rounds,
+        reg_season_weeks=REG_SEASON_WEEKS, scenarios=out,
+    )
+
+
+def _points_percentiles(points_for: list[float]) -> dict[str, float]:
+    ordered = sorted(points_for)
+    n = len(ordered)
+    return {
+        "points_p10": ordered[int(n * 0.10)],
+        "points_p50": ordered[int(n * 0.50)],
+        "points_p90": ordered[min(n - 1, int(n * 0.90))],
+    }
 
 
 @app.get("/api/leagues/{league_key}/draft-order", response_model=dict[int, str])
@@ -191,7 +338,7 @@ def list_players(league_key: str) -> list[dict]:
     if not pool_path.exists():
         return []
     with pool_path.open() as f:
-        return list(csv.DictReader(f))
+        return [_with_team(row) for row in csv.DictReader(f)]
 
 
 @app.get("/api/leagues/{league_key}/recommend", response_model=list[dict])
@@ -215,6 +362,10 @@ def recommend_next_pick(league_key: str, exclude: str = "") -> list[dict]:
             "position": p.position,
             "proj_points": p.proj_points,
             "vorp": round(vorp(p, replacement), 1),
+            "reason": (
+                f"{p.proj_points:.0f} proj. pts, {vorp(p, replacement):.0f} above the last "
+                f"startable {p.position} in this league - best value left on the board."
+            ),
         }
         for p in ranked
     ]
@@ -235,9 +386,51 @@ def list_waivers(league_key: str) -> list[dict]:
     with pool_path.open() as f:
         pool = list(csv.DictReader(f))
 
-    available = [p for p in pool if p["player_id"] not in rostered_ids]
+    available = [_with_team(p) for p in pool if p["player_id"] not in rostered_ids]
     available.sort(key=lambda p: float(p["proj_points"] or 0), reverse=True)
     return available
+
+
+@lru_cache(maxsize=1)
+def _team_lookup() -> dict[str, str]:
+    return sleeper_team_lookup()
+
+
+DEF_CITY_TO_TEAM = {
+    "Arizona": "ARI", "Atlanta": "ATL", "Baltimore": "BAL", "Buffalo": "BUF",
+    "Carolina": "CAR", "Chicago": "CHI", "Cincinnati": "CIN", "Cleveland": "CLE",
+    "Dallas": "DAL", "Denver": "DEN", "Detroit": "DET", "Green Bay": "GB",
+    "Houston": "HOU", "Indianapolis": "IND", "Jacksonville": "JAX",
+    "Kansas City": "KC", "LA Chargers": "LAC", "LA Rams": "LAR", "Las Vegas": "LV",
+    "Miami": "MIA", "Minnesota": "MIN", "New England": "NE", "New Orleans": "NO",
+    "NY Giants": "NYG", "NY Jets": "NYJ", "Philadelphia": "PHI", "Pittsburgh": "PIT",
+    "Seattle": "SEA", "San Francisco": "SF", "Tampa Bay": "TB", "Tennessee": "TEN",
+    "Washington": "WAS",
+}
+
+
+def _with_team(player: dict) -> dict:
+    """Attach the player's current NFL team abbreviation. Defense rows carry no
+    Sleeper id we can trust (the ADP source has its own ids), so derive the team
+    from the "<City> Defense" name instead."""
+    if player["position"] == "DEF":
+        city = player["name"].removesuffix(" Defense")
+        team = DEF_CITY_TO_TEAM.get(city, "")
+    else:
+        team = _team_lookup().get(player["player_id"], "")
+    return {**player, "nfl_team": team}
+
+
+@app.get("/api/leagues/{league_key}/schedule/weeks", response_model=list[int])
+def list_schedule_weeks(league_key: str) -> list[int]:
+    league = _get_league(league_key)
+    return available_weeks(int(league.season))
+
+
+@app.get("/api/leagues/{league_key}/schedule/{week}", response_model=list[dict])
+def get_schedule(league_key: str, week: int) -> list[dict]:
+    league = _get_league(league_key)
+    return week_schedule(int(league.season), week)
 
 
 def _get_league(league_key: str):

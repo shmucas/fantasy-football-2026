@@ -10,7 +10,9 @@ one database, not one per league.
 
 - `backend/` - Python. Pulls Sleeper data, builds player projections, and runs
   the draft and season simulations.
-- `frontend/` - React app to view teams, picks, and simulation results.
+- `frontend/` - React app to view teams, picks, and simulation results. Sign in
+  with your Sleeper username to get in - four tabs per league: Draft, Waivers,
+  Schedule, and Simulations.
 
 ## Backend setup
 
@@ -32,6 +34,78 @@ uv run uvicorn ffb.api:app --reload --port 8010
 npm install
 npm run dev
 ```
+
+## Deploying
+
+The frontend is a static Vite build, so Vercel fits it. The backend is a
+long-lived FastAPI process, which Vercel does not run, so it needs its own host.
+Render is the recommendation here: it deploys straight from the GitHub repo,
+lets you point a service at the `backend/` subdirectory, and installs with
+`uv sync` from the committed `uv.lock`. Railway or Fly.io work the same way -
+the `backend/Procfile` declares the start command for hosts that read one.
+
+Deploy the backend first, because the frontend build needs its URL.
+
+### 1. Backend (Render)
+
+Create a Web Service from this repo with:
+
+- **Root directory**: `backend`
+- **Build command**: `uv sync --frozen`
+- **Start command**: `uv run uvicorn ffb.api:app --host 0.0.0.0 --port $PORT`
+
+Environment variables:
+
+| Variable | Value |
+|----------|-------|
+| `FRONTEND_ORIGIN` | Your Vercel URL, e.g. `https://ffb26.vercel.app`. Comma-separate to allow more than one (handy for Vercel preview URLs). |
+
+Local dev origins keep working without this variable: `localhost` and
+`127.0.0.1` on any port are always allowed.
+
+Sign-in needs a few more variables now that the app has a login screen. Full
+list, with `FRONTEND_ORIGIN` repeated for context:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `FRONTEND_ORIGIN` | none | Your Vercel URL(s), comma-separated. |
+| `DATABASE_URL` | local SQLite file | Supabase Postgres connection string. `postgres://`/`postgresql://` prefixes are normalized to `postgresql+psycopg://`. |
+| `SESSION_SECRET` | insecure dev default | Signs the session cookie - set a long random value. |
+| `COOKIE_SECURE` | `false` | Set to `true` in production. |
+| `COOKIE_SAMESITE` | `lax` | Set to `none` in production (frontend and backend are on different sites). Requires `COOKIE_SECURE=true`. |
+
+See `backend/README.md` for the full picture on these.
+
+Two things to know:
+
+- The player pools in `backend/data/pools/` are committed, so the API has data
+  on first boot. Rebuilding a pool means committing the new CSV, not running
+  the build on the host.
+- Simulation results are written to `backend/data/results/`, which is wiped on
+  every redeploy. Fine for now - the season simulator returns results directly
+  in its API response instead of writing to disk, so this only affects the
+  older points-based draft simulator.
+
+### 2. Frontend (Vercel)
+
+In the Vercel project settings:
+
+- **Root directory**: `frontend`. The framework preset and output directory
+  come from `frontend/vercel.json`, so leave those alone.
+- **Environment variable**: `VITE_API_URL`, set to the backend URL from step 1
+  **including the `/api` suffix**, e.g. `https://ffb26-api.onrender.com/api`.
+
+Vite bakes env vars in at build time, so changing `VITE_API_URL` needs a
+redeploy, not just a restart. If it is unset the build falls back to
+`http://localhost:8010/api`, which is what local dev uses. Copy
+`frontend/.env.example` to `frontend/.env.local` if you want to point local dev
+at a deployed backend.
+
+### 3. Deploy
+
+Deploy the frontend, open it, and confirm the league list loads. An empty page
+with CORS errors in the browser console means `FRONTEND_ORIGIN` on the backend
+does not match the Vercel URL exactly, scheme included.
 
 ## Check Sleeper data
 
@@ -104,6 +178,11 @@ uv run python -m ffb.sim.evaluate --league maxxing_college --my-slot 4 --n-sampl
 ```
 
 Prints expected wins, how often you hit the playoff win total, and average points.
+
+The same logic is exposed at `POST /api/leagues/{league_key}/sims/season` for
+the frontend's Simulations tab, which charts expected wins, the win
+distribution, and a P10/P50/P90 points range - carrying over whatever's
+already logged on the Live Draft Board or planned as a forced pick.
 
 ## How the math works
 
@@ -189,14 +268,17 @@ with:
 |------|--------------|
 | `ffb/leagues.py` | The two league configs |
 | `ffb/sleeper_client.py` | Read-only Sleeper API client |
+| `ffb/auth.py` | Sleeper-username login: session cookie, `users` table upsert |
+| `ffb/db.py` | SQLAlchemy engine - Supabase Postgres via `DATABASE_URL`, local SQLite otherwise |
 | `ffb/nfldata/scoring.py` | Turn NFL stats into fantasy points for a league |
 | `ffb/nfldata/history.py` | Points curve + week/season variance from past data |
 | `ffb/nfldata/adp.py` | Fetch ADP from Fantasy Football Calculator |
-| `ffb/nfldata/ids.py` | Match player names to Sleeper ids |
+| `ffb/nfldata/ids.py` | Match player names to Sleeper ids, current NFL team lookup |
+| `ffb/nfldata/schedule.py` | NFL game schedule by week, from nflverse |
 | `ffb/nfldata/build.py` | Build the player pool CSV |
 | `ffb/draft/strategy.py` | Player value + the opponent pick model |
 | `ffb/draft/sim.py` | One mock draft |
 | `ffb/draft/run_sims.py` | Many mock drafts, compare points |
 | `ffb/draft/analyze.py` | Compare saved point results |
 | `ffb/sim/season.py` | One simulated season -> your wins |
-| `ffb/sim/evaluate.py` | Compare picks by expected wins |
+| `ffb/sim/evaluate.py` | Compare picks by expected wins (CLI and the Simulations tab's API) |
