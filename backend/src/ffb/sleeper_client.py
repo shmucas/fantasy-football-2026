@@ -12,6 +12,9 @@ class SleeperClient:
     def get_user(self, username: str) -> dict:
         return self._get(f"/user/{username}")
 
+    def get_user_leagues(self, user_id: str, season: str, sport: str = "nfl") -> list[dict]:
+        return self._get(f"/user/{user_id}/leagues/{sport}/{season}")
+
     def get_league(self, league_id: str) -> dict:
         return self._get(f"/league/{league_id}")
 

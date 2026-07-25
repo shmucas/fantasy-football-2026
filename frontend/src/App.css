@@ -1,14 +1,79 @@
-.header {
-  text-align: center;
-  margin: 0 auto 40px;
-  max-width: 560px;
+.hero {
   position: relative;
+  width: 100%;
+  max-width: 860px;
+  margin: 8px auto 44px;
+  padding: 0 0 30px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+.hero-eyebrow {
+  margin: 0 0 18px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-dark);
+}
+
+.hero h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: clamp(34px, 6vw, 60px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0 auto;
+  max-width: 17ch;
+  color: var(--text);
+}
+
+.hero h1 em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.hero-lede {
+  max-width: 54ch;
+  margin: 20px auto 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* Reads as a box score: the numbers lead, the labels sit under them. */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px 46px;
+  margin: 30px 0 0;
+}
+
+.hero-stats div {
+  min-width: 110px;
+}
+
+.hero-stats dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.hero-stats dd {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.1;
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .help-btn {
   position: absolute;
   top: 0;
-  right: -50px;
+  right: 0;
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -84,21 +149,6 @@
   margin: 0 0 10px;
 }
 
-.header h1 {
-  font-family: var(--serif);
-  font-size: 40px;
-  font-weight: 500;
-  letter-spacing: -0.4px;
-  margin: 0;
-  color: var(--text);
-}
-
-.header p {
-  color: var(--text-dim);
-  margin: 10px 0 0;
-  font-size: 16px;
-}
-
 .tabs {
   display: flex;
   gap: 10px;
@@ -107,6 +157,9 @@
 }
 
 .tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
   padding: 10px 20px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -127,6 +180,159 @@
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.tab-meta {
+  font-size: 11.5px;
+  font-weight: 500;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 46px 28px;
+}
+
+.empty-state .state-msg {
+  max-width: 46ch;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.approx-note {
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--panel-2);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* Roadmap board: columns are work states, so they stay side by side and
+   scroll horizontally rather than reflowing into an ordered-looking stack. */
+.roadmap-intro {
+  max-width: 60ch;
+  margin: -8px 0 22px;
+  line-height: 1.6;
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 18px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.kanban-col {
+  min-width: 240px;
+}
+
+.kanban-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kanban-head h3 {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.kanban-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.kanban-head p {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.kanban-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kanban-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.kanban-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.kanban-card h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kanban-card p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.kanban-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.kanban-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* The board is the one place a horizontal scroll is correct, so let the
+   columns keep their width on small screens instead of collapsing. */
+@media (max-width: 700px) {
+  .kanban {
+    grid-template-columns: repeat(3, 78vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanban-card,
+  .tab,
+  .run-btn {
+    transition: none;
+  }
+
+  .kanban-card:hover {
+    transform: none;
+  }
 }
 
 .grid {
@@ -462,6 +668,16 @@
   color: var(--text);
 }
 
+.subtab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.subtab:disabled:hover {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
 .subtab.active {
   background: var(--panel);
   border-color: var(--border);
@@ -755,37 +971,39 @@
   color: var(--text-dim);
 }
 
-.login-card {
-  max-width: 420px;
-}
-
-.confirm-user {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.confirm-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.confirm-avatar-sm {
-  width: 24px;
-  height: 24px;
-}
-
 .session-bar {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 20;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 14px;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 40px));
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
   color: var(--text-dim);
   font-size: 14px;
+}
+
+.session-input {
+  width: 260px;
+  max-width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 11px;
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.session-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .stat-tiles {

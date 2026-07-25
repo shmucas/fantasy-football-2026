@@ -1,18 +1,26 @@
 # Fantasy Football 2026
 
-Tools to help draft and manage two fantasy football teams on Sleeper.
+Tools to help draft and manage fantasy football teams on Sleeper.
 
-- **Miller League** - 14 teams, high school friends, FAAB waivers - key `miller_league_hs`
-- **FANTASYFOOTBALLMAXXING** - 10 teams, college friends, rolling waivers - key `maxxing_college`
+Enter a Sleeper username and the app loads every league that user is in for the
+season straight from Sleeper. Leagues are addressed by their Sleeper league id,
+so nothing about a league is configured here.
 
-Both leagues use the same code. Data is tagged with a `league_key`, so there is
-one database, not one per league.
+Two leagues are still named in `ffb/leagues.py`, but only as the build-time
+registry for generating draft pools offline:
+
+- **Miller League** - 14 teams, half PPR, FAAB waivers - key `miller_league_hs`
+- **FANTASYFOOTBALLMAXXING** - 10 teams, full PPR, rolling waivers - key `maxxing_college`
+
+A league with no exact pool reuses the closest one by scoring format and team
+count, and the app labels those projections as approximate.
 
 - `backend/` - Python. Pulls Sleeper data, builds player projections, and runs
   the draft and season simulations.
-- `frontend/` - React app to view teams, picks, and simulation results. No
-  login: enter your Sleeper username, confirm it's you, and you're in - four
-  tabs per league: Draft, Waivers, Schedule, and Simulations.
+- `frontend/` - React app to view teams, picks, and simulation results. There is
+  no login: enter and confirm your Sleeper username in the top right corner and
+  it is kept for that browser session. Four tabs per league: Draft, Waivers,
+  Schedule, and Simulations.
 
 ## Backend setup
 
@@ -61,28 +69,14 @@ Environment variables:
 | `FRONTEND_ORIGIN` | Your Vercel URL, e.g. `https://ffb26.vercel.app`. Comma-separate to allow more than one (handy for Vercel preview URLs). |
 
 Local dev origins keep working without this variable: `localhost` and
-`127.0.0.1` on any port are always allowed. Any `https://*.vercel.app` origin
-is also allowed by default, so a forgotten or stale `FRONTEND_ORIGIN` doesn't
-turn into a silent CORS rejection (which the browser reports as a bare
-"Failed to fetch", not a helpful error) - set `FRONTEND_ORIGIN` for a custom
-domain instead.
+`127.0.0.1` on any port are always allowed.
 
-Confirming a username needs a few more variables. Full list, with
-`FRONTEND_ORIGIN` repeated for context:
+Environment variables:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `FRONTEND_ORIGIN` | none | Your Vercel URL(s), comma-separated. Only needed for a custom domain - see the `*.vercel.app` fallback above. |
+| `FRONTEND_ORIGIN` | none | Your Vercel URL(s), comma-separated. |
 | `DATABASE_URL` | local SQLite file | Supabase Postgres connection string. `postgres://`/`postgresql://` prefixes are normalized to `postgresql+psycopg://`. |
-| `SESSION_SECRET` | insecure dev default | Signs the session cookie - set a long random value. |
-| `COOKIE_SECURE` | `false` | Set to `true` in production. |
-| `COOKIE_SAMESITE` | `lax` | Set to `none` in production (frontend and backend are on different sites). Requires `COOKIE_SECURE=true`. |
-
-The session cookie itself has no expiry set - it's a browser-session cookie,
-so it goes away when the browser (or its cookies) is cleared, and the next
-visit just asks for the username again. There's no persistent login store
-yet by design; that's a deliberate followup once the app has more than one
-regular user.
 
 See `backend/README.md` for the full picture on these.
 
@@ -296,9 +290,8 @@ with:
 
 | File | What it does |
 |------|--------------|
-| `ffb/leagues.py` | The two league configs |
+| `ffb/leagues.py` | Build-time league configs - the registry of prebuilt draft pools |
 | `ffb/sleeper_client.py` | Read-only Sleeper API client |
-| `ffb/auth.py` | Sleeper-username lookup/confirm, session cookie, `users` table upsert |
 | `ffb/db.py` | SQLAlchemy engine - Supabase Postgres via `DATABASE_URL`, local SQLite otherwise |
 | `ffb/nfldata/scoring.py` | Turn NFL stats into fantasy points for a league |
 | `ffb/nfldata/history.py` | Points curve + week/season variance from past data |

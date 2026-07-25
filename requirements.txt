@@ -7,7 +7,6 @@
 # API starts needing a new import, add it here too.
 fastapi>=0.115.0
 httpx>=0.28.1
-itsdangerous>=2.2.0
 numpy>=2.5.1
 pydantic>=2.13.4
 psycopg[binary]>=3.2.0

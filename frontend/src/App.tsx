@@ -59,9 +59,11 @@ type LeagueConfig = {
   name: string;
   season: string;
   num_teams: number;
-  friend_group: string;
   roster_positions: string[];
   faab: boolean;
+  ppr: number;
+  approx_pool: boolean;
+  flex_approx: boolean;
 };
 
 type Roster = {
@@ -142,7 +144,6 @@ async function postJSON(path: string, body: unknown): Promise<unknown> {
     res = await fetch(`${API}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(body),
     });
   } catch {
@@ -155,113 +156,115 @@ async function postJSON(path: string, body: unknown): Promise<unknown> {
   return parsed;
 }
 
-function EnterUsername({ onFound }: { onFound: (user: SessionUser) => void }) {
+const DEFAULT_SEASON = "2026";
+const SESSION_KEY = "ffb_sleeper_user";
+
+function loadStoredUser(): SessionUser | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as SessionUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeUser(user: SessionUser | null) {
+  try {
+    if (user) sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Private-mode browsers can refuse sessionStorage; the app still works in-memory.
+  }
+}
+
+function SleeperConnect({
+  user,
+  onConfirm,
+  onClear,
+}: {
+  user: SessionUser | null;
+  onConfirm: (user: SessionUser) => void;
+  onClear: () => void;
+}) {
   const [username, setUsername] = useState("");
+  const [pending, setPending] = useState<SessionUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
+  async function lookup(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const found = await postJSON("/auth/lookup", { username: username.trim() });
-      onFound(found as SessionUser);
+      const res = await fetch(`${API}/sleeper/user/${encodeURIComponent(username.trim())}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? "Couldn't find that Sleeper user");
+      }
+      setPending(await res.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't find that username");
+      setError(err instanceof Error ? err.message : "Couldn't find that Sleeper user");
     } finally {
       setBusy(false);
     }
   }
 
-  return (
-    <>
-      <div className="header">
-        <div>
-          <h1>FFB Draft Simulator</h1>
-          <p>Enter your Sleeper username to get started</p>
-        </div>
+  if (user) {
+    return (
+      <div className="session-bar">
+        <span>{user.display_name ?? user.sleeper_username}</span>
+        <button
+          className="tab"
+          onClick={() => {
+            setUsername("");
+            setPending(null);
+            onClear();
+          }}
+        >
+          Change
+        </button>
       </div>
+    );
+  }
 
-      <div className="card login-card">
-        <form onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="sleeper-username">Sleeper username</label>
-            <input
-              id="sleeper-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. lucaspedroferreira"
-              autoFocus
-            />
-          </div>
-          <button className="run-btn" type="submit" disabled={busy || !username.trim()}>
-            {busy ? "Looking you up on Sleeper..." : "Continue"}
-          </button>
-          {error && <p className="state-msg error">{error}</p>}
-        </form>
+  if (pending) {
+    return (
+      <div className="session-bar">
+        <span>
+          Is this you? <strong>{pending.display_name ?? pending.sleeper_username}</strong> (@
+          {pending.sleeper_username})
+        </span>
+        <button
+          className="tab active"
+          onClick={() => {
+            onConfirm(pending);
+            setPending(null);
+          }}
+        >
+          Yes, that's me
+        </button>
+        <button className="tab" onClick={() => setPending(null)}>
+          No
+        </button>
       </div>
-    </>
-  );
-}
-
-function ConfirmUsername({
-  found,
-  onConfirmed,
-  onBack,
-}: {
-  found: SessionUser;
-  onConfirmed: (user: SessionUser) => void;
-  onBack: () => void;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function confirm() {
-    setBusy(true);
-    setError(null);
-    try {
-      const user = await postJSON("/auth/confirm", { username: found.sleeper_username });
-      onConfirmed(user as SessionUser);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't confirm that username");
-    } finally {
-      setBusy(false);
-    }
+    );
   }
 
   return (
-    <>
-      <div className="header">
-        <div>
-          <h1>FFB Draft Simulator</h1>
-          <p>Is this you?</p>
-        </div>
-      </div>
-
-      <div className="card login-card">
-        <div className="confirm-user">
-          {found.avatar && (
-            <img
-              className="confirm-avatar"
-              src={`https://sleepercdn.com/avatars/thumbs/${found.avatar}`}
-              alt=""
-            />
-          )}
-          <div>
-            <strong>{found.display_name ?? found.sleeper_username}</strong>
-            <div className="state-msg">@{found.sleeper_username}</div>
-          </div>
-        </div>
-        <button className="run-btn" onClick={confirm} disabled={busy}>
-          {busy ? "Confirming..." : "That's me"}
-        </button>
-        <button className="tab" onClick={onBack} disabled={busy}>
-          Not me, try again
-        </button>
-        {error && <p className="state-msg error">{error}</p>}
-      </div>
-    </>
+    <form className="session-bar" onSubmit={lookup}>
+      <input
+        id="sleeper-username"
+        className="session-input"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="Enter your Sleeper username for Sleeper connectivity"
+        aria-label="Sleeper username"
+      />
+      <button className="tab" type="submit" disabled={busy || !username.trim()}>
+        {busy ? "Checking..." : "Confirm"}
+      </button>
+      {error && <span className="state-msg error">{error}</span>}
+    </form>
   );
 }
 
@@ -368,42 +371,159 @@ function WinDistributionChart({ scenarios }: { scenarios: SeasonScenario[] }) {
   );
 }
 
-function App() {
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [pendingUser, setPendingUser] = useState<SessionUser | null>(null);
-  const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    fetch(`${API}/auth/me`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setUser)
-      .catch(() => setUser(null))
-      .finally(() => setChecking(false));
-  }, []);
+// The roadmap is the honest state of the build, so the columns are the three
+// states work is actually in - not a generic backlog board.
+type RoadmapCard = {
+  title: string;
+  detail: string;
+  tags: string[];
+};
 
-  async function signOut() {
-    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" }).catch(
-      () => undefined,
-    );
-    setUser(null);
-    setPendingUser(null);
-  }
+const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
+  {
+    column: "Running",
+    note: "Working today",
+    cards: [
+      {
+        title: "Draft simulator",
+        detail:
+          "Simulates the whole snake draft hundreds of times against a noisy opponent model and reports the spread of outcomes for your team.",
+        tags: ["Draft", "Monte Carlo"],
+      },
+      {
+        title: "Pick recommendations",
+        detail:
+          "Ranks the board by value over replacement for your exact roster slots and league size, and explains why each name is there.",
+        tags: ["Draft", "VORP"],
+      },
+      {
+        title: "Waiver wire ranking",
+        detail:
+          "Ranks everyone nobody rostered, and flags the ones who would fill a starting spot you have not covered.",
+        tags: ["Waivers"],
+      },
+      {
+        title: "Season projections",
+        detail:
+          "Turns projected points into an expected win total and a playoff probability for a given draft plan.",
+        tags: ["Season"],
+      },
+    ],
+  },
+  {
+    column: "Building",
+    note: "Being wired up now",
+    cards: [
+      {
+        title: "Discord notifications",
+        detail:
+          "A bot in the league server that posts when a player on your roster gets hurt, when waivers process, and when a lineup needs attention.",
+        tags: ["Discord", "Alerts"],
+      },
+      {
+        title: "Injury watch",
+        detail:
+          "Tracks practice reports and game status for every player you roster, and says who to move before kickoff.",
+        tags: ["Discord", "Injuries"],
+      },
+    ],
+  },
+  {
+    column: "Next up",
+    note: "Queued, not started",
+    cards: [
+      {
+        title: "Waiver claim scraper",
+        detail:
+          "Runs continuously and records every claim in the league: who bid, who they picked up, and what it cost. Reads the room so you know what your league mates are chasing.",
+        tags: ["Discord", "Scraper"],
+      },
+      {
+        title: "Start/sit calls",
+        detail:
+          "Posts a recommended lineup each week with the matchup reasoning, and pings you if you leave points on the bench.",
+        tags: ["Discord", "Lineups"],
+      },
+      {
+        title: "Trade finder",
+        detail:
+          "Scans every other roster for a trade that makes both teams better, and drafts the message to send.",
+        tags: ["Trades"],
+      },
+      {
+        title: "Autopilot",
+        detail:
+          "The end goal: the bot claims waivers and sets lineups on its own, and tells you afterwards what it did and why.",
+        tags: ["Autopilot"],
+      },
+    ],
+  },
+];
 
-  if (checking) return <p className="state-msg">Loading...</p>;
-  if (!user && pendingUser) {
-    return (
-      <ConfirmUsername
-        found={pendingUser}
-        onConfirmed={setUser}
-        onBack={() => setPendingUser(null)}
-      />
-    );
-  }
-  if (!user) return <EnterUsername onFound={setPendingUser} />;
-  return <DraftApp user={user} onSignOut={signOut} />;
+function Roadmap() {
+  return (
+    <div className="card full-width">
+      <h2>Roadmap</h2>
+      <p className="state-msg roadmap-intro">
+        Where the automation stands. Everything under Running works right now, everything to the
+        right of it is on the way to a Discord bot that runs the teams.
+      </p>
+      <div className="kanban">
+        {ROADMAP.map((col) => (
+          <section className="kanban-col" key={col.column}>
+            <header className="kanban-head">
+              <h3>{col.column}</h3>
+              <span className="kanban-count">{col.cards.length}</span>
+              <p>{col.note}</p>
+            </header>
+            <ul className="kanban-cards">
+              {col.cards.map((card) => (
+                <li className="kanban-card" key={card.title}>
+                  <h4>{card.title}</h4>
+                  <p>{card.detail}</p>
+                  <div className="kanban-tags">
+                    {card.tags.map((t) => (
+                      <span className="kanban-tag" key={t}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
+function App() {
+  const [user, setUser] = useState<SessionUser | null>(() => loadStoredUser());
+
+  function confirmUser(next: SessionUser) {
+    storeUser(next);
+    setUser(next);
+  }
+
+  function clearUser() {
+    storeUser(null);
+    setUser(null);
+  }
+
+  return <DraftApp user={user} onConfirmUser={confirmUser} onClearUser={clearUser} />;
+}
+
+function DraftApp({
+  user,
+  onConfirmUser,
+  onClearUser,
+}: {
+  user: SessionUser | null;
+  onConfirmUser: (user: SessionUser) => void;
+  onClearUser: () => void;
+}) {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
@@ -421,7 +541,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
   const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims">("draft");
+  const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims" | "roadmap">("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
   const [waiversLoading, setWaiversLoading] = useState(false);
   const [waiverRecs, setWaiverRecs] = useState<WaiverRecommendation[]>([]);
@@ -439,29 +559,27 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
   useEffect(() => {
-    fetch(`${API}/leagues`, { credentials: "include" })
+    if (!user) {
+      setLeagues([]);
+      setActiveKey(null);
+      return;
+    }
+    fetch(`${API}/leagues?sleeper_user_id=${user.sleeper_user_id}`)
       .then((r) => r.json())
       .then((data: LeagueConfig[]) => {
         setLeagues(data);
-        if (data.length) setActiveKey(data[0].key);
+        setActiveKey(data.length ? data[0].key : null);
       })
       .catch(() => setLeagues([]));
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!activeKey) return;
     setRoster(null);
     setRosterError(null);
-    fetch(`${API}/leagues/${activeKey}/roster`, { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error("Couldn't reach Sleeper for this league");
-        return r.json();
-      })
-      .then(setRoster)
-      .catch((e) => setRosterError(e.message));
 
     setPosFilter("ALL");
-    fetch(`${API}/leagues/${activeKey}/players`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/players`)
       .then((r) => r.json())
       .then(setPlayers)
       .catch(() => setPlayers([]));
@@ -472,7 +590,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setLastSample([]);
     setSeasonSim(null);
     setSeasonError(null);
-    fetch(`${API}/leagues/${activeKey}/draft-order`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/draft-order`)
       .then((r) => r.json())
       .then(setTeamNames)
       .catch(() => setTeamNames({}));
@@ -480,12 +598,25 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   }, [activeKey]);
 
   useEffect(() => {
+    setRoster(null);
+    setRosterError(null);
+    if (!activeKey || !user) return;
+    fetch(`${API}/leagues/${activeKey}/roster?sleeper_user_id=${user.sleeper_user_id}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Couldn't reach Sleeper for this league");
+        return r.json();
+      })
+      .then(setRoster)
+      .catch((e) => setRosterError(e.message));
+  }, [activeKey, user]);
+
+  useEffect(() => {
     if (!activeKey) return;
     const excluded = [
       ...draftLog,
       ...forcedPicks.filter((f) => f.playerId).map((f) => f.playerId),
     ];
-    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`)
       .then((r) => r.json())
       .then(setRecommendations)
       .catch(() => setRecommendations([]));
@@ -494,23 +625,29 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   useEffect(() => {
     if (!activeKey || view !== "waivers") return;
     setWaiversLoading(true);
-    fetch(`${API}/leagues/${activeKey}/waivers`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/waivers`)
       .then((r) => r.json())
       .then(setWaivers)
       .catch(() => setWaivers([]))
       .finally(() => setWaiversLoading(false));
 
+    if (!user) {
+      setWaiverRecs([]);
+      return;
+    }
     setWaiverRecsLoading(true);
-    fetch(`${API}/leagues/${activeKey}/waivers/recommend`, { credentials: "include" })
+    fetch(
+      `${API}/leagues/${activeKey}/waivers/recommend?sleeper_user_id=${user.sleeper_user_id}`,
+    )
       .then((r) => r.json())
       .then(setWaiverRecs)
       .catch(() => setWaiverRecs([]))
       .finally(() => setWaiverRecsLoading(false));
-  }, [activeKey, view]);
+  }, [activeKey, view, user]);
 
   useEffect(() => {
     if (!activeKey || view !== "schedule") return;
-    fetch(`${API}/leagues/${activeKey}/schedule/weeks`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/schedule/weeks`)
       .then((r) => r.json())
       .then((data: number[]) => {
         setWeeks(data);
@@ -523,7 +660,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   useEffect(() => {
     if (!activeKey || view !== "schedule") return;
     setScheduleLoading(true);
-    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`)
       .then((r) => r.json())
       .then(setGames)
       .catch(() => setGames([]))
@@ -531,7 +668,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   }, [activeKey, view, scheduleWeek]);
 
   function loadResults(key: string) {
-    fetch(`${API}/leagues/${key}/results`, { credentials: "include" })
+    fetch(`${API}/leagues/${key}/results`)
       .then((r) => r.json())
       .then(setResults)
       .catch(() => setResults([]));
@@ -542,22 +679,15 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setRunning(true);
     setRunError(null);
     try {
-      const res = await fetch(`${API}/sims/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          league_key: activeKey,
-          my_slot: mySlot,
-          n_sims: nSims,
-          forced_picks: Object.fromEntries(
-            forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
-          ),
-          already_picked: draftLog,
-        }),
-      });
-      if (!res.ok) throw new Error("Simulation failed to run");
-      const data = await res.json();
+      const data = (await postJSON("/sims/run", {
+        league_key: activeKey,
+        my_slot: mySlot,
+        n_sims: nSims,
+        forced_picks: Object.fromEntries(
+          forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
+        ),
+        already_picked: draftLog,
+      })) as { sample_roster?: SamplePick[] };
       setLastSample(data.sample_roster ?? []);
       loadResults(activeKey);
     } catch (e) {
@@ -572,21 +702,15 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setSeasonRunning(true);
     setSeasonError(null);
     try {
-      const res = await fetch(`${API}/leagues/${activeKey}/sims/season`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          my_slot: mySlot,
-          n_samples: nSamples,
-          forced_picks: Object.fromEntries(
-            forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
-          ),
-          already_picked: draftLog,
-        }),
+      const data = await postJSON(`/leagues/${activeKey}/sims/season`, {
+        my_slot: mySlot,
+        n_samples: nSamples,
+        forced_picks: Object.fromEntries(
+          forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
+        ),
+        already_picked: draftLog,
       });
-      if (!res.ok) throw new Error((await res.json()).detail ?? "Season simulation failed");
-      setSeasonSim(await res.json());
+      setSeasonSim(data as SeasonSim);
     } catch (e) {
       setSeasonError(e instanceof Error ? e.message : "Season simulation failed");
     } finally {
@@ -650,28 +774,39 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
 
   return (
     <>
-      <div className="header">
-        <div>
-          <h1>FFB Draft Simulator</h1>
-          <p>Fantasy football draft planning across your leagues</p>
-        </div>
+      <SleeperConnect user={user} onConfirm={onConfirmUser} onClear={onClearUser} />
+
+      <header className="hero">
+        <p className="hero-eyebrow">Fantasy football, 2026 season</p>
+        <h1>
+          Welcome to Lucas' <em>fantasy football</em> showcase
+        </h1>
+        <p className="hero-lede">
+          I got lazy. So this season the machines do the work: they run the draft, read the
+          waiver wire, and tell me who to start. I just click the buttons and take the credit.
+        </p>
+        <dl className="hero-stats">
+          <div>
+            <dt>Leagues connected</dt>
+            <dd>{user ? leagues.length : "\u00b7"}</dd>
+          </div>
+          <div>
+            <dt>Managers to beat</dt>
+            <dd>{active ? active.num_teams - 1 : "\u00b7"}</dd>
+          </div>
+          <div>
+            <dt>Players ranked</dt>
+            <dd>{players.length || "\u00b7"}</dd>
+          </div>
+          <div>
+            <dt>Sims per run</dt>
+            <dd>{nSims.toLocaleString()}</dd>
+          </div>
+        </dl>
         <button className="help-btn" onClick={() => setShowHelp(true)} title="How the math works">
           ?
         </button>
-        <div className="session-bar">
-          {user.avatar && (
-            <img
-              className="confirm-avatar confirm-avatar-sm"
-              src={`https://sleepercdn.com/avatars/thumbs/${user.avatar}`}
-              alt=""
-            />
-          )}
-          <span>{user.display_name ?? user.sleeper_username}</span>
-          <button className="tab" onClick={onSignOut}>
-            Switch user
-          </button>
-        </div>
-      </div>
+      </header>
 
       {showHelp && (
         <div className="modal-backdrop" onClick={() => setShowHelp(false)}>
@@ -733,53 +868,91 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
         </div>
       )}
 
-      <div className="tabs">
-        {leagues.map((l) => (
+      {leagues.length > 0 && (
+        <div className="tabs">
+          {leagues.map((l) => (
+            <button
+              key={l.key}
+              className={`tab ${l.key === activeKey ? "active" : ""}`}
+              onClick={() => setActiveKey(l.key)}
+            >
+              {l.name}
+              <span className="tab-meta">{l.num_teams} teams</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <nav className="subtabs">
+        {(["draft", "waivers", "schedule", "sims"] as const).map((v) => (
           <button
-            key={l.key}
-            className={`tab ${l.key === activeKey ? "active" : ""}`}
-            onClick={() => setActiveKey(l.key)}
+            key={v}
+            className={`subtab ${view === v && active ? "active" : ""}`}
+            onClick={() => setView(v)}
+            disabled={!active}
+            title={active ? undefined : "Pick a league first"}
           >
-            {l.name}
+            {{ draft: "Draft", waivers: "Waivers", schedule: "Schedule", sims: "Simulations" }[v]}
           </button>
         ))}
-      </div>
+        <button
+          className={`subtab ${view === "roadmap" ? "active" : ""}`}
+          onClick={() => setView("roadmap")}
+        >
+          Roadmap
+        </button>
+      </nav>
 
-      {active && (
-        <div className="subtabs">
-          <button
-            className={`subtab ${view === "draft" ? "active" : ""}`}
-            onClick={() => setView("draft")}
-          >
-            Draft
-          </button>
-          <button
-            className={`subtab ${view === "waivers" ? "active" : ""}`}
-            onClick={() => setView("waivers")}
-          >
-            Waivers
-          </button>
-          <button
-            className={`subtab ${view === "schedule" ? "active" : ""}`}
-            onClick={() => setView("schedule")}
-          >
-            Schedule
-          </button>
-          <button
-            className={`subtab ${view === "sims" ? "active" : ""}`}
-            onClick={() => setView("sims")}
-          >
-            Simulations
-          </button>
+      {view === "roadmap" && <Roadmap />}
+
+      {!user && view !== "roadmap" && (
+        <div className="card full-width empty-state">
+          <h2>Connect Sleeper to start</h2>
+          <p className="state-msg">
+            Enter your Sleeper username in the top right corner. Your leagues, rosters and draft
+            board load straight from Sleeper - there is nothing to sign up for.
+          </p>
         </div>
+      )}
+
+      {user && leagues.length === 0 && view !== "roadmap" && (
+        <div className="card full-width empty-state">
+          <h2>No leagues for this season</h2>
+          <p className="state-msg">
+            Sleeper shows no {DEFAULT_SEASON} NFL leagues for that username. Check the username in
+            the top right corner, or join a league on Sleeper and reload.
+          </p>
+        </div>
+      )}
+
+      {active && (active.approx_pool || active.flex_approx) && view !== "roadmap" && (
+        <p className="approx-note">
+          {active.approx_pool && (
+            <>
+              Projections for {active.name} are borrowed from the closest league we have a player
+              pool for, so treat the point totals as approximate.{" "}
+            </>
+          )}
+          {active.flex_approx && (
+            <>
+              This league has a superflex spot, which is modelled as a normal RB/WR/TE flex - the
+              simulator will not put a second quarterback there.
+            </>
+          )}
+        </p>
       )}
 
       {active && view === "draft" && (
         <div className="grid">
           <div className="card full-width">
             <h2>Your Roster</h2>
-            {rosterError && <p className="state-msg error">{rosterError}</p>}
-            {!rosterError && !roster && <p className="state-msg">Loading...</p>}
+            {!user && (
+              <p className="state-msg">
+                Enter your Sleeper username in the top right corner to load your roster.
+              </p>
+            )}
+            {user && rosterError && <p className="state-msg error">{rosterError}</p>}
+            {user && !rosterError && !roster && <p className="state-msg">Loading...</p>}
             {roster && (
               <>
                 <div className="roster-meta">
@@ -1443,12 +1616,6 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
         </div>
       )}
 
-      {!active && leagues.length === 0 && (
-        <p className="state-msg">
-          Can't reach the API. Start it with <code>uv run uvicorn ffb.api:app --reload</code> in{" "}
-          <code>backend/</code>.
-        </p>
-      )}
     </>
   );
 }
