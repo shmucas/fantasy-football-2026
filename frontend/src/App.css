@@ -70,97 +70,57 @@
   font-variant-numeric: tabular-nums;
 }
 
-.help-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+
+
+
+
+
+
+
+
+
+
+/* One control instead of a row of pills: a row sized to its own content and,
+   because #root centers its children, spilled off BOTH edges once an account
+   had more than a couple of leagues - the left-hand ones unreachable. A select
+   stays one line wide no matter how many leagues, on a phone or a desktop. */
+.league-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 32px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.league-picker-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.league-select {
+  /* Native control, so it gets the platform's own picker - a proper wheel on
+     iOS - rather than a custom menu that has to reinvent touch behaviour. */
+  max-width: min(420px, 100%);
+  padding: 10px 18px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
-  color: var(--text-dim);
+  color: var(--text);
+  font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.help-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-  padding: 24px;
-}
-
-.modal {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  max-width: 620px;
-  width: 100%;
-  max-height: 85vh;
-  overflow-y: auto;
-  padding: 22px 26px;
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.modal-head h2 {
-  margin: 0;
-}
-
-.modal-body h3 {
-  font-size: 15px;
-  margin: 20px 0 6px;
-}
-
-.modal-body h3:first-child {
-  margin-top: 8px;
-}
-
-.modal-body p {
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--text-dim);
-  margin: 0 0 10px;
-}
-
-.modal-body pre {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  overflow-x: auto;
-  margin: 0 0 10px;
-}
-
-/* #root centers its children, so a nowrap row would size to its content and
-   spill off BOTH edges once a user has more than a couple of leagues - the
-   left-hand ones ending up unreachable. Wrap instead, and never exceed the
-   container, so every league stays on screen without sideways scrolling. */
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 32px;
-  justify-content: center;
-  width: 100%;
-  max-width: 100%;
+.league-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .tab {
@@ -189,13 +149,6 @@
   color: #fff;
 }
 
-.tab-meta {
-  font-size: 11.5px;
-  font-weight: 500;
-  opacity: 0.65;
-  font-variant-numeric: tabular-nums;
-}
-
 .empty-state {
   text-align: center;
   padding: 46px 28px;
@@ -219,8 +172,38 @@
   color: var(--text-dim);
 }
 
-/* Roadmap board: columns are work states, so they stay side by side and
-   scroll horizontally rather than reflowing into an ordered-looking stack. */
+/* Long-form explanation body, used by the How it works tab. */
+.prose {
+  max-width: 68ch;
+}
+
+.prose h3 {
+  font-size: 15px;
+  margin: 22px 0 6px;
+}
+
+.prose h3:first-child {
+  margin-top: 0;
+}
+
+.prose p {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+}
+
+.prose pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  overflow-x: auto;
+  margin: 0 0 10px;
+}
+
+/* Roadmap board: on wide screens the columns are work states side by side. */
 .roadmap-intro {
   max-width: 60ch;
   margin: -8px 0 22px;
@@ -322,11 +305,18 @@
   color: var(--text-dim);
 }
 
-/* The board is the one place a horizontal scroll is correct, so let the
-   columns keep their width on small screens instead of collapsing. */
+/* A three-column board on a phone means sideways scrolling and reading each
+   column through a keyhole. Stack the columns instead: the states still read
+   in order top to bottom, and each header keeps its own label and count. */
 @media (max-width: 700px) {
   .kanban {
-    grid-template-columns: repeat(3, 78vw);
+    grid-template-columns: 1fr;
+    gap: 28px;
+    overflow-x: visible;
+  }
+
+  .kanban-col {
+    min-width: 0;
   }
 }
 
@@ -1014,6 +1004,17 @@
   font-size: 14px;
 }
 
+/* Pinned to the corner there is no room for it on a phone - it lands on top of
+   the hero and the roadmap headings. Put it back in the flow at the top. */
+@media (max-width: 700px) {
+  .session-bar {
+    position: static;
+    max-width: 100%;
+    margin: 0 0 20px;
+    justify-content: center;
+  }
+}
+
 .session-input {
   width: 260px;
   max-width: 100%;
@@ -1134,4 +1135,24 @@
   bottom: 0;
   width: 2px;
   background: var(--panel);
+}
+
+.site-footer {
+  width: 100%;
+  margin-top: 56px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.repo-link {
+  color: var(--text-dim);
+  font-size: 13px;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.repo-link:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }

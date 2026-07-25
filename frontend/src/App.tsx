@@ -461,9 +461,66 @@ const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
           "The end goal: the bot claims waivers and sets lineups on its own, and tells you afterwards what it did and why.",
         tags: ["Autopilot"],
       },
+      {
+        title: "Reverse engineer the Sleeper API",
+        detail:
+          "Sleeper's documented read-only endpoints stop short of the good stuff. Map what the app itself calls so projections, matchups and transactions can be pulled properly. Hushhhh.",
+        tags: ["Sleeper", "Research"],
+      },
     ],
   },
 ];
+
+function HowItWorks() {
+  return (
+    <div className="card full-width">
+      <h2>How the math works</h2>
+      <div className="prose">
+        <h3>Player value: VORP</h3>
+        <p>
+          A player's raw projection doesn't say much on its own - what matters is how much better
+          they are than the player you'd get for free at the same position. We compute replacement
+          level per position: the projection of the last starter-worthy player at that position,
+          league-wide, given your roster rules and number of teams. Then:
+        </p>
+        <pre>VORP(player) = player.proj_points - replacement_level[player.position]</pre>
+        <p>This is what ranks the "Suggested next pick" list and the sample roster's picks.</p>
+
+        <h3>Opponent draft model</h3>
+        <p>
+          Each simulated opponent doesn't just take the top of the ADP board - real drafts have
+          noise (reaches, sleepers) and are shaped by roster need. For each available player we
+          compute a noisy effective draft slot:
+        </p>
+        <pre>effective_slot = ADP + Normal(0, sigma) + need_penalty</pre>
+        <p>
+          The opponent takes the player with the lowest effective slot. Noise grows by round, so
+          round 1 is close to chalk and late rounds are noisy reaches. Once a position's starting
+          requirement is already filled on a team's roster, that position gets a penalty that
+          pushes opponents off it.
+        </p>
+
+        <h3>Draft simulation</h3>
+        <p>
+          One simulated draft plays the snake order pick by pick. Any pick already logged on the
+          Live Draft Board is replayed exactly as it happened, not simulated. Your own forced picks
+          are reserved ahead of time so they can't be sniped by an opponent. Running many of these
+          and looking at the distribution of your team's projected points (mean, stdev,
+          P10/P50/P90) is how "Scenario Results" gets built.
+        </p>
+
+        <h3>Season simulation: points to wins</h3>
+        <p>
+          Total projected points is a rough score - what actually matters is win probability. Each
+          player gets a season-long luck factor plus a week-to-week luck factor on top of it, every
+          team starts its best lineup by projection, and a full round-robin schedule is played out
+          to count wins. Two variance-reduction tricks (common random numbers and Latin hypercube
+          sampling) keep results stable with fewer simulation runs.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function Roadmap() {
   return (
@@ -545,7 +602,9 @@ function DraftApp({
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
   const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims" | "roadmap">("draft");
+  const [view, setView] = useState<
+    "draft" | "waivers" | "schedule" | "sims" | "roadmap" | "math"
+  >("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
   const [waiversLoading, setWaiversLoading] = useState(false);
   const [waiverRecs, setWaiverRecs] = useState<WaiverRecommendation[]>([]);
@@ -554,13 +613,15 @@ function DraftApp({
   const [scheduleWeek, setScheduleWeek] = useState<number>(1);
   const [games, setGames] = useState<Game[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
   const [seasonSim, setSeasonSim] = useState<SeasonSim | null>(null);
   const [seasonRunning, setSeasonRunning] = useState(false);
   const [seasonError, setSeasonError] = useState<string | null>(null);
   const [nSamples, setNSamples] = useState(300);
 
   const active = leagues.find((l) => l.key === activeKey) ?? null;
+  // Roadmap and How it works stand on their own - they don't describe a league,
+  // so the "connect Sleeper" and "no leagues" prompts don't belong on them.
+  const leagueFreeView = view === "roadmap" || view === "math";
 
   useEffect(() => {
     if (!user) {
@@ -807,83 +868,25 @@ function DraftApp({
             <dd>{nSims.toLocaleString()}</dd>
           </div>
         </dl>
-        <button className="help-btn" onClick={() => setShowHelp(true)} title="How the math works">
-          ?
-        </button>
       </header>
 
-      {showHelp && (
-        <div className="modal-backdrop" onClick={() => setShowHelp(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2>How the math works</h2>
-              <button className="remove-pick-btn" onClick={() => setShowHelp(false)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body">
-              <h3>Player value: VORP</h3>
-              <p>
-                A player's raw projection doesn't say much on its own - what matters is how much
-                better they are than the player you'd get for free at the same position. We
-                compute replacement level per position: the projection of the last starter-worthy
-                player at that position, league-wide, given your roster rules and number of
-                teams. Then:
-              </p>
-              <pre>VORP(player) = player.proj_points - replacement_level[player.position]</pre>
-              <p>
-                This is what ranks the "Suggested next pick" list and the sample roster's picks.
-              </p>
-
-              <h3>Opponent draft model</h3>
-              <p>
-                Each simulated opponent doesn't just take the top of the ADP board - real drafts
-                have noise (reaches, sleepers) and are shaped by roster need. For each available
-                player we compute a noisy effective draft slot:
-              </p>
-              <pre>effective_slot = ADP + Normal(0, sigma) + need_penalty</pre>
-              <p>
-                The opponent takes the player with the lowest effective slot. Noise grows by
-                round, so round 1 is close to chalk and late rounds are noisy reaches. Once a
-                position's starting requirement is already filled on a team's roster, that
-                position gets a penalty that pushes opponents off it.
-              </p>
-
-              <h3>Draft simulation</h3>
-              <p>
-                One simulated draft plays the snake order pick by pick. Any pick already logged
-                on the Live Draft Board is replayed exactly as it happened, not simulated. Your
-                own forced picks are reserved ahead of time so they can't be sniped by an
-                opponent. Running many of these and looking at the distribution of your team's
-                projected points (mean, stdev, P10/P50/P90) is how "Scenario Results" gets built.
-              </p>
-
-              <h3>Season simulation: points to wins</h3>
-              <p>
-                Total projected points is a rough score - what actually matters is win
-                probability. Each player gets a season-long luck factor plus a week-to-week luck
-                factor on top of it, every team starts its best lineup by projection, and a full
-                round-robin schedule is played out to count wins. Two variance-reduction tricks
-                (common random numbers and Latin hypercube sampling) keep results stable with
-                fewer simulation runs.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {leagues.length > 0 && (
-        <div className="tabs">
-          {leagues.map((l) => (
-            <button
-              key={l.key}
-              className={`tab ${l.key === activeKey ? "active" : ""}`}
-              onClick={() => setActiveKey(l.key)}
-            >
-              {l.name}
-              <span className="tab-meta">{l.num_teams} teams</span>
-            </button>
-          ))}
+        <div className="league-picker">
+          <label className="league-picker-label" htmlFor="league-select">
+            League
+          </label>
+          <select
+            id="league-select"
+            className="league-select"
+            value={activeKey ?? ""}
+            onChange={(e) => setActiveKey(e.target.value)}
+          >
+            {leagues.map((l) => (
+              <option key={l.key} value={l.key}>
+                {l.name} - {l.num_teams} teams
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -905,11 +908,18 @@ function DraftApp({
         >
           Roadmap
         </button>
+        <button
+          className={`subtab ${view === "math" ? "active" : ""}`}
+          onClick={() => setView("math")}
+        >
+          How it works
+        </button>
       </nav>
 
       {view === "roadmap" && <Roadmap />}
+      {view === "math" && <HowItWorks />}
 
-      {!user && view !== "roadmap" && (
+      {!user && !leagueFreeView && (
         <div className="card full-width empty-state">
           <h2>Connect Sleeper to start</h2>
           <p className="state-msg">
@@ -919,7 +929,7 @@ function DraftApp({
         </div>
       )}
 
-      {user && leagues.length === 0 && view !== "roadmap" && (
+      {user && leagues.length === 0 && !leagueFreeView && (
         <div className="card full-width empty-state">
           <h2>No leagues for this season</h2>
           <p className="state-msg">
@@ -929,7 +939,7 @@ function DraftApp({
         </div>
       )}
 
-      {active && (active.approx_pool || active.flex_approx) && view !== "roadmap" && (
+      {active && (active.approx_pool || active.flex_approx) && !leagueFreeView && (
         <p className="approx-note">
           {active.approx_pool && (
             <>
@@ -1620,6 +1630,16 @@ function DraftApp({
         </div>
       )}
 
+      <footer className="site-footer">
+        <a
+          className="repo-link"
+          href="https://github.com/shmucas/fantasy-football-2026"
+          target="_blank"
+          rel="noreferrer"
+        >
+          View source on GitHub
+        </a>
+      </footer>
     </>
   );
 }
