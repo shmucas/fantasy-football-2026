@@ -4,6 +4,7 @@ import csv
 import os
 import random
 import statistics
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from ffb.auth import router as auth_router
+from ffb.db import init_db
 from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
@@ -19,7 +22,14 @@ from ffb.nfldata.ids import sleeper_team_lookup
 from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sleeper_client import SleeperClient
 
-app = FastAPI(title="FFB API")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="FFB API", lifespan=lifespan)
 
 FRONTEND_ORIGINS = [
     origin.strip()
@@ -31,9 +41,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 
 @app.get("/api/leagues")

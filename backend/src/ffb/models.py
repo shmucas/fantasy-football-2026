@@ -1,7 +1,22 @@
-from sqlalchemy import Float, ForeignKey, Integer, String
+from datetime import UTC, datetime
+
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ffb.db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    # Keyed on the Sleeper user id: usernames are mutable, ids are not.
+    sleeper_user_id: Mapped[str] = mapped_column(String, primary_key=True)
+    sleeper_username: Mapped[str] = mapped_column(String, index=True)
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    avatar: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class League(Base):
