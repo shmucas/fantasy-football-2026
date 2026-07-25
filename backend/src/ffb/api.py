@@ -1,6 +1,7 @@
 """HTTP API for the frontend: league/roster data plus draft-sim triggering."""
 
 import csv
+import os
 import random
 import statistics
 from functools import lru_cache
@@ -20,8 +21,15 @@ from ffb.sleeper_client import SleeperClient
 
 app = FastAPI(title="FFB API")
 
+FRONTEND_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("FRONTEND_ORIGIN", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=FRONTEND_ORIGINS,
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_methods=["*"],
     allow_headers=["*"],

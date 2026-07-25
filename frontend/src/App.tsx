@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API = "http://localhost:8010/api";
+const API = import.meta.env.VITE_API_URL ?? "http://localhost:8010/api";
 
 // Team codes disagree across our data sources (nflverse ids, nflverse schedules,
 // Sleeper's own CDN) - normalize everything to the codes Sleeper's logo CDN expects.
