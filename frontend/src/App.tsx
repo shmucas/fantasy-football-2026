@@ -55,7 +55,97 @@ type SamplePick = {
   reason: string;
 };
 
+type SessionUser = {
+  sleeper_user_id: string;
+  sleeper_username: string;
+  display_name: string | null;
+  avatar: string | null;
+};
+
+function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
+  const [username, setUsername] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: username.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? "Couldn't sign you in");
+      }
+      onSignedIn(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't sign you in");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="header">
+        <div>
+          <h1>FFB Draft Simulator</h1>
+          <p>Sign in with your Sleeper username to get started</p>
+        </div>
+      </div>
+
+      <div className="card login-card">
+        <form onSubmit={submit}>
+          <div className="field">
+            <label htmlFor="sleeper-username">Sleeper username</label>
+            <input
+              id="sleeper-username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="e.g. lucaspedroferreira"
+              autoFocus
+            />
+          </div>
+          <button className="run-btn" type="submit" disabled={busy || !username.trim()}>
+            {busy ? "Checking Sleeper..." : "Sign in"}
+          </button>
+          {error && <p className="state-msg error">{error}</p>}
+        </form>
+      </div>
+    </>
+  );
+}
+
 function App() {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    fetch(`${API}/auth/me`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setChecking(false));
+  }, []);
+
+  async function signOut() {
+    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" }).catch(
+      () => undefined,
+    );
+    setUser(null);
+  }
+
+  if (checking) return <p className="state-msg">Loading...</p>;
+  if (!user) return <Login onSignedIn={setUser} />;
+  return <DraftApp user={user} onSignOut={signOut} />;
+}
+
+function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
@@ -232,6 +322,12 @@ function App() {
         <div>
           <h1>FFB Draft Simulator</h1>
           <p>Fantasy football draft planning across your leagues</p>
+        </div>
+        <div className="session-bar">
+          <span>{user.display_name ?? user.sleeper_username}</span>
+          <button className="tab" onClick={onSignOut}>
+            Sign out
+          </button>
         </div>
       </div>
 
