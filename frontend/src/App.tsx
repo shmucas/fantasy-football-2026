@@ -206,10 +206,14 @@ function App() {
     return round % 2 === 0 ? posInRound + 1 : numTeams - posInRound;
   }
 
-  function logNextPick() {
-    if (!nextPickPlayer) return;
-    setDraftLog((prev) => (prev.includes(nextPickPlayer) ? prev : [...prev, nextPickPlayer]));
+  function logPick(playerId: string) {
+    if (!playerId) return;
+    setDraftLog((prev) => (prev.includes(playerId) ? prev : [...prev, playerId]));
     setNextPickPlayer("");
+  }
+
+  function logNextPick() {
+    logPick(nextPickPlayer);
   }
 
   function undoLastPick() {
@@ -323,32 +327,67 @@ function App() {
           <div className="card full-width">
             <h2>Live Draft Board</h2>
             <p className="state-msg" style={{ marginBottom: 14 }}>
-              Log every pick as it happens in the real draft, yours and your opponents'. The
-              simulator treats these as fixed and only simulates picks that haven't happened yet.
+              Track the real draft here as it happens, pick by pick. Every pick you log here is
+              locked in and removed from the simulator.
             </p>
-            <div className="draft-board-status">
+            <div className={`draft-board-status ${nextSlot === mySlot ? "on-the-clock" : ""}`}>
               <span>
                 On the clock: <strong>Round {nextRound}</strong>,{" "}
                 <strong>{teamNames[nextSlot] ?? `Slot ${nextSlot}`}</strong>
               </span>
               {nextSlot === mySlot && <span className="your-pick-badge">Your pick</span>}
+              {draftLog.length > 0 && (
+                <button className="remove-pick-btn undo-btn" onClick={undoLastPick} title="Undo last pick">
+                  ↺ Undo
+                </button>
+              )}
             </div>
-            <div className="force-row">
-              <select value={nextPickPlayer} onChange={(e) => setNextPickPlayer(e.target.value)}>
-                <option value="">Select who was picked...</option>
-                {boardPickable.map((p) => (
-                  <option key={p.player_id} value={p.player_id}>
-                    {p.name} ({p.position}, ADP {Number(p.adp).toFixed(1)})
-                  </option>
-                ))}
-              </select>
-              <button className="remove-pick-btn" onClick={logNextPick} title="Log pick">
-                ✓
-              </button>
-              <button className="remove-pick-btn" onClick={undoLastPick} title="Undo last pick">
-                ↺
-              </button>
-            </div>
+
+            {nextSlot === mySlot && recommendations.length > 0 && (
+              <div className="your-turn-box">
+                <span className="recommend-label">It's your pick, take the best value</span>
+                <ol className="rank-list">
+                  {recommendations.slice(0, 5).map((r, i) => (
+                    <li key={r.player_id} className="rank-row rank-row-clickable" onClick={() => logPick(r.player_id)}>
+                      <span className="rank-num">{i + 1}</span>
+                      <img
+                        className="avatar avatar-sm"
+                        src={`https://sleepercdn.com/content/nfl/players/${r.player_id}.jpg`}
+                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                        alt=""
+                      />
+                      <div className="rank-body">
+                        <div className="rank-top-line">
+                          <span className="rank-name">{r.name}</span>
+                          <span className="pos-pill">{r.position}</span>
+                          <span className="rank-vorp">+{r.vorp.toFixed(0)} VORP</span>
+                        </div>
+                      </div>
+                      <button className="draft-pick-btn">Draft</button>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            <details className="any-pick-picker">
+              <summary>
+                {nextSlot === mySlot ? "Or pick someone else" : "Log this pick"}
+              </summary>
+              <div className="force-row">
+                <select value={nextPickPlayer} onChange={(e) => setNextPickPlayer(e.target.value)}>
+                  <option value="">Select who was picked...</option>
+                  {boardPickable.map((p) => (
+                    <option key={p.player_id} value={p.player_id}>
+                      {p.name} ({p.position}, ADP {Number(p.adp).toFixed(1)})
+                    </option>
+                  ))}
+                </select>
+                <button className="remove-pick-btn" onClick={logNextPick} title="Log pick">
+                  ✓
+                </button>
+              </div>
+            </details>
             {draftLog.length > 0 && (
               <ol className="draft-log">
                 {draftLog.map((id, i) => {
@@ -399,7 +438,7 @@ function App() {
             </div>
 
             <div className="force-picks">
-              <label>Force my picks</label>
+              <label>What if I take... (hypothetical future picks, doesn't affect the live board)</label>
               {forcedPicks.map((f, i) => (
                 <div className="force-row" key={i}>
                   <input
@@ -429,36 +468,6 @@ function App() {
                 + Add forced pick
               </button>
             </div>
-
-            {recommendations.length > 0 && (
-              <div className="recommend-box">
-                <span className="recommend-label">Suggested next pick, ranked by value over replacement</span>
-                <ol className="rank-list">
-                  {recommendations.map((r, i) => (
-                    <li key={r.player_id} className="rank-row">
-                      <span className="rank-num">{i + 1}</span>
-                      <img
-                        className="avatar avatar-sm"
-                        src={`https://sleepercdn.com/content/nfl/players/${r.player_id}.jpg`}
-                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
-                        alt=""
-                      />
-                      <div className="rank-body">
-                        <div className="rank-top-line">
-                          <span className="rank-name">{r.name}</span>
-                          <span className="pos-pill">{r.position}</span>
-                          <span className="rank-vorp">+{r.vorp.toFixed(0)} VORP</span>
-                        </div>
-                        <p className="rank-reason">
-                          {r.proj_points.toFixed(0)} proj. pts, {r.vorp.toFixed(0)} above the last
-                          startable {r.position} in this league - best value left on the board.
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
 
             <button className="run-btn" onClick={runSim} disabled={running}>
               {running ? "Simulating..." : "Run simulation"}
