@@ -33,6 +33,67 @@ npm install
 npm run dev
 ```
 
+## Deploying
+
+The frontend is a static Vite build, so Vercel fits it. The backend is a
+long-lived FastAPI process, which Vercel does not run, so it needs its own host.
+Render is the recommendation here: it deploys straight from the GitHub repo,
+lets you point a service at the `backend/` subdirectory, and installs with
+`uv sync` from the committed `uv.lock`. Railway or Fly.io work the same way -
+the `backend/Procfile` declares the start command for hosts that read one.
+
+Deploy the backend first, because the frontend build needs its URL.
+
+### 1. Backend (Render)
+
+Create a Web Service from this repo with:
+
+- **Root directory**: `backend`
+- **Build command**: `uv sync --frozen`
+- **Start command**: `uv run uvicorn ffb.api:app --host 0.0.0.0 --port $PORT`
+
+Environment variables:
+
+| Variable | Value |
+|----------|-------|
+| `FRONTEND_ORIGIN` | Your Vercel URL, e.g. `https://ffb26.vercel.app`. Comma-separate to allow more than one (handy for Vercel preview URLs). |
+
+Local dev origins keep working without this variable: `localhost` and
+`127.0.0.1` on any port are always allowed.
+
+Two things to know:
+
+- The player pools in `backend/data/pools/` are committed, so the API has data
+  on first boot. Rebuilding a pool means committing the new CSV, not running
+  the build on the host.
+- Simulation results are written to `backend/data/results/`, which is wiped on
+  every redeploy. Fine for now; the Supabase work will move this into the
+  database.
+- Once the Supabase and login work lands, this service will also need
+  `DATABASE_URL` and whatever auth secret that change introduces. Check that
+  branch for the exact names.
+
+### 2. Frontend (Vercel)
+
+In the Vercel project settings:
+
+- **Root directory**: `frontend`. The framework preset and output directory
+  come from `frontend/vercel.json`, so leave those alone.
+- **Environment variable**: `VITE_API_URL`, set to the backend URL from step 1
+  **including the `/api` suffix**, e.g. `https://ffb26-api.onrender.com/api`.
+
+Vite bakes env vars in at build time, so changing `VITE_API_URL` needs a
+redeploy, not just a restart. If it is unset the build falls back to
+`http://localhost:8010/api`, which is what local dev uses. Copy
+`frontend/.env.example` to `frontend/.env.local` if you want to point local dev
+at a deployed backend.
+
+### 3. Deploy
+
+Deploy the frontend, open it, and confirm the league list loads. An empty page
+with CORS errors in the browser console means `FRONTEND_ORIGIN` on the backend
+does not match the Vercel URL exactly, scheme included.
+
 ## Check Sleeper data
 
 Sleeper's API is read only. This checks we can reach both leagues and find your

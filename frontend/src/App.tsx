@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API = "http://localhost:8010/api";
+const API = import.meta.env.VITE_API_URL ?? "http://localhost:8010/api";
 
 type LeagueConfig = {
   key: string;
