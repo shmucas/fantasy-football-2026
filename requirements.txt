@@ -2,7 +2,6 @@
 # Mirrors backend/pyproject.toml (uvicorn omitted - Vercel serves the ASGI app).
 fastapi>=0.115.0
 httpx>=0.28.1
-itsdangerous>=2.2.0
 nflreadpy>=0.1.5
 numpy>=2.5.1
 pydantic>=2.13.4

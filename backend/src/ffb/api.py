@@ -3,18 +3,18 @@
 import csv
 import os
 import random
+import re
 import statistics
 from collections import Counter
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+import httpx
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from ffb.auth import current_user_id
-from ffb.auth import router as auth_router
 from ffb.db import init_db
 from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
@@ -53,7 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router)
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,32}$")
 
 
 @app.get("/api/leagues")
@@ -61,16 +61,37 @@ def list_leagues() -> list[dict]:
     return [league.model_dump() for league in LEAGUES.values()]
 
 
-def _current_sleeper_id(request: Request) -> str:
-    user_id = current_user_id(request)
-    if user_id is None:
-        raise HTTPException(401, "Not signed in")
-    return user_id
+@app.get("/api/sleeper/user/{username}")
+def lookup_sleeper_user(username: str) -> dict:
+    """Resolve a Sleeper username to its account. The frontend keeps the returned
+    id for the browser session; there is no server-side login or stored user."""
+    username = username.strip()
+    if not USERNAME_RE.match(username):
+        raise HTTPException(400, "That doesn't look like a Sleeper username")
+
+    try:
+        with SleeperClient() as client:
+            info = client.get_user(username)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(404, "No Sleeper user with that username") from exc
+        raise HTTPException(502, "Couldn't reach Sleeper right now") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Couldn't reach Sleeper right now") from exc
+
+    if not info or not info.get("user_id"):
+        raise HTTPException(404, "No Sleeper user with that username")
+
+    return {
+        "sleeper_user_id": info["user_id"],
+        "sleeper_username": info.get("username") or username,
+        "display_name": info.get("display_name"),
+        "avatar": info.get("avatar"),
+    }
 
 
 @app.get("/api/leagues/{league_key}/roster")
-def get_my_roster(league_key: str, request: Request) -> dict:
-    sleeper_id = _current_sleeper_id(request)
+def get_my_roster(league_key: str, sleeper_user_id: str) -> dict:
     league = _get_league(league_key)
     with SleeperClient() as client:
         info = client.get_league(league.league_id)
@@ -78,13 +99,13 @@ def get_my_roster(league_key: str, request: Request) -> dict:
         users = client.get_users(league.league_id)
 
     user_by_id = {u["user_id"]: u for u in users}
-    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_id), None)
+    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_user_id), None)
     if my_roster is None:
         raise HTTPException(404, "Your roster wasn't found in this league")
 
     return {
         "status": info["status"],
-        "display_name": user_by_id[sleeper_id]["display_name"],
+        "display_name": user_by_id[sleeper_user_id]["display_name"],
         "roster_id": my_roster["roster_id"],
         "player_ids": my_roster.get("players") or [],
     }
@@ -404,10 +425,9 @@ def list_waivers(league_key: str) -> list[dict]:
 
 
 @app.get("/api/leagues/{league_key}/waivers/recommend", response_model=list[dict])
-def recommend_waivers(league_key: str, request: Request) -> list[dict]:
+def recommend_waivers(league_key: str, sleeper_user_id: str) -> list[dict]:
     """Best available waiver-wire pickups for your roster: ranked by VORP against the
     whole league's replacement level, flagged where they'd fill a starting need you have."""
-    sleeper_id = _current_sleeper_id(request)
     league = _get_league(league_key)
     pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
     if not pool_path.exists():
@@ -416,7 +436,7 @@ def recommend_waivers(league_key: str, request: Request) -> list[dict]:
     with SleeperClient() as client:
         rosters = client.get_rosters(league.league_id)
     rostered_ids = {pid for r in rosters for pid in (r.get("players") or [])}
-    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_id), None)
+    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_user_id), None)
     my_player_ids = set(my_roster.get("players") or []) if my_roster else set()
 
     players = load_players(pool_path)

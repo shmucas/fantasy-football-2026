@@ -142,7 +142,6 @@ async function postJSON(path: string, body: unknown): Promise<unknown> {
     res = await fetch(`${API}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(body),
     });
   } catch {
@@ -155,113 +154,114 @@ async function postJSON(path: string, body: unknown): Promise<unknown> {
   return parsed;
 }
 
-function EnterUsername({ onFound }: { onFound: (user: SessionUser) => void }) {
+const SESSION_KEY = "ffb_sleeper_user";
+
+function loadStoredUser(): SessionUser | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as SessionUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeUser(user: SessionUser | null) {
+  try {
+    if (user) sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Private-mode browsers can refuse sessionStorage; the app still works in-memory.
+  }
+}
+
+function SleeperConnect({
+  user,
+  onConfirm,
+  onClear,
+}: {
+  user: SessionUser | null;
+  onConfirm: (user: SessionUser) => void;
+  onClear: () => void;
+}) {
   const [username, setUsername] = useState("");
+  const [pending, setPending] = useState<SessionUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
+  async function lookup(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const found = await postJSON("/auth/lookup", { username: username.trim() });
-      onFound(found as SessionUser);
+      const res = await fetch(`${API}/sleeper/user/${encodeURIComponent(username.trim())}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? "Couldn't find that Sleeper user");
+      }
+      setPending(await res.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't find that username");
+      setError(err instanceof Error ? err.message : "Couldn't find that Sleeper user");
     } finally {
       setBusy(false);
     }
   }
 
-  return (
-    <>
-      <div className="header">
-        <div>
-          <h1>FFB Draft Simulator</h1>
-          <p>Enter your Sleeper username to get started</p>
-        </div>
+  if (user) {
+    return (
+      <div className="session-bar">
+        <span>{user.display_name ?? user.sleeper_username}</span>
+        <button
+          className="tab"
+          onClick={() => {
+            setUsername("");
+            setPending(null);
+            onClear();
+          }}
+        >
+          Change
+        </button>
       </div>
+    );
+  }
 
-      <div className="card login-card">
-        <form onSubmit={submit}>
-          <div className="field">
-            <label htmlFor="sleeper-username">Sleeper username</label>
-            <input
-              id="sleeper-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. lucaspedroferreira"
-              autoFocus
-            />
-          </div>
-          <button className="run-btn" type="submit" disabled={busy || !username.trim()}>
-            {busy ? "Looking you up on Sleeper..." : "Continue"}
-          </button>
-          {error && <p className="state-msg error">{error}</p>}
-        </form>
+  if (pending) {
+    return (
+      <div className="session-bar">
+        <span>
+          Is this you? <strong>{pending.display_name ?? pending.sleeper_username}</strong> (@
+          {pending.sleeper_username})
+        </span>
+        <button
+          className="tab active"
+          onClick={() => {
+            onConfirm(pending);
+            setPending(null);
+          }}
+        >
+          Yes, that's me
+        </button>
+        <button className="tab" onClick={() => setPending(null)}>
+          No
+        </button>
       </div>
-    </>
-  );
-}
-
-function ConfirmUsername({
-  found,
-  onConfirmed,
-  onBack,
-}: {
-  found: SessionUser;
-  onConfirmed: (user: SessionUser) => void;
-  onBack: () => void;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function confirm() {
-    setBusy(true);
-    setError(null);
-    try {
-      const user = await postJSON("/auth/confirm", { username: found.sleeper_username });
-      onConfirmed(user as SessionUser);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't confirm that username");
-    } finally {
-      setBusy(false);
-    }
+    );
   }
 
   return (
-    <>
-      <div className="header">
-        <div>
-          <h1>FFB Draft Simulator</h1>
-          <p>Is this you?</p>
-        </div>
-      </div>
-
-      <div className="card login-card">
-        <div className="confirm-user">
-          {found.avatar && (
-            <img
-              className="confirm-avatar"
-              src={`https://sleepercdn.com/avatars/thumbs/${found.avatar}`}
-              alt=""
-            />
-          )}
-          <div>
-            <strong>{found.display_name ?? found.sleeper_username}</strong>
-            <div className="state-msg">@{found.sleeper_username}</div>
-          </div>
-        </div>
-        <button className="run-btn" onClick={confirm} disabled={busy}>
-          {busy ? "Confirming..." : "That's me"}
-        </button>
-        <button className="tab" onClick={onBack} disabled={busy}>
-          Not me, try again
-        </button>
-        {error && <p className="state-msg error">{error}</p>}
-      </div>
-    </>
+    <form className="session-bar" onSubmit={lookup}>
+      <input
+        id="sleeper-username"
+        className="session-input"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="Enter your Sleeper username for Sleeper connectivity"
+        aria-label="Sleeper username"
+      />
+      <button className="tab" type="submit" disabled={busy || !username.trim()}>
+        {busy ? "Checking..." : "Confirm"}
+      </button>
+      {error && <span className="state-msg error">{error}</span>}
+    </form>
   );
 }
 
@@ -369,41 +369,30 @@ function WinDistributionChart({ scenarios }: { scenarios: SeasonScenario[] }) {
 }
 
 function App() {
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [pendingUser, setPendingUser] = useState<SessionUser | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [user, setUser] = useState<SessionUser | null>(() => loadStoredUser());
 
-  useEffect(() => {
-    fetch(`${API}/auth/me`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setUser)
-      .catch(() => setUser(null))
-      .finally(() => setChecking(false));
-  }, []);
+  function confirmUser(next: SessionUser) {
+    storeUser(next);
+    setUser(next);
+  }
 
-  async function signOut() {
-    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" }).catch(
-      () => undefined,
-    );
+  function clearUser() {
+    storeUser(null);
     setUser(null);
-    setPendingUser(null);
   }
 
-  if (checking) return <p className="state-msg">Loading...</p>;
-  if (!user && pendingUser) {
-    return (
-      <ConfirmUsername
-        found={pendingUser}
-        onConfirmed={setUser}
-        onBack={() => setPendingUser(null)}
-      />
-    );
-  }
-  if (!user) return <EnterUsername onFound={setPendingUser} />;
-  return <DraftApp user={user} onSignOut={signOut} />;
+  return <DraftApp user={user} onConfirmUser={confirmUser} onClearUser={clearUser} />;
 }
 
-function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
+function DraftApp({
+  user,
+  onConfirmUser,
+  onClearUser,
+}: {
+  user: SessionUser | null;
+  onConfirmUser: (user: SessionUser) => void;
+  onClearUser: () => void;
+}) {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
@@ -439,7 +428,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
   useEffect(() => {
-    fetch(`${API}/leagues`, { credentials: "include" })
+    fetch(`${API}/leagues`)
       .then((r) => r.json())
       .then((data: LeagueConfig[]) => {
         setLeagues(data);
@@ -452,16 +441,9 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     if (!activeKey) return;
     setRoster(null);
     setRosterError(null);
-    fetch(`${API}/leagues/${activeKey}/roster`, { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error("Couldn't reach Sleeper for this league");
-        return r.json();
-      })
-      .then(setRoster)
-      .catch((e) => setRosterError(e.message));
 
     setPosFilter("ALL");
-    fetch(`${API}/leagues/${activeKey}/players`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/players`)
       .then((r) => r.json())
       .then(setPlayers)
       .catch(() => setPlayers([]));
@@ -472,7 +454,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setLastSample([]);
     setSeasonSim(null);
     setSeasonError(null);
-    fetch(`${API}/leagues/${activeKey}/draft-order`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/draft-order`)
       .then((r) => r.json())
       .then(setTeamNames)
       .catch(() => setTeamNames({}));
@@ -480,12 +462,25 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   }, [activeKey]);
 
   useEffect(() => {
+    setRoster(null);
+    setRosterError(null);
+    if (!activeKey || !user) return;
+    fetch(`${API}/leagues/${activeKey}/roster?sleeper_user_id=${user.sleeper_user_id}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Couldn't reach Sleeper for this league");
+        return r.json();
+      })
+      .then(setRoster)
+      .catch((e) => setRosterError(e.message));
+  }, [activeKey, user]);
+
+  useEffect(() => {
     if (!activeKey) return;
     const excluded = [
       ...draftLog,
       ...forcedPicks.filter((f) => f.playerId).map((f) => f.playerId),
     ];
-    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/recommend?exclude=${excluded.join(",")}`)
       .then((r) => r.json())
       .then(setRecommendations)
       .catch(() => setRecommendations([]));
@@ -494,23 +489,29 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   useEffect(() => {
     if (!activeKey || view !== "waivers") return;
     setWaiversLoading(true);
-    fetch(`${API}/leagues/${activeKey}/waivers`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/waivers`)
       .then((r) => r.json())
       .then(setWaivers)
       .catch(() => setWaivers([]))
       .finally(() => setWaiversLoading(false));
 
+    if (!user) {
+      setWaiverRecs([]);
+      return;
+    }
     setWaiverRecsLoading(true);
-    fetch(`${API}/leagues/${activeKey}/waivers/recommend`, { credentials: "include" })
+    fetch(
+      `${API}/leagues/${activeKey}/waivers/recommend?sleeper_user_id=${user.sleeper_user_id}`,
+    )
       .then((r) => r.json())
       .then(setWaiverRecs)
       .catch(() => setWaiverRecs([]))
       .finally(() => setWaiverRecsLoading(false));
-  }, [activeKey, view]);
+  }, [activeKey, view, user]);
 
   useEffect(() => {
     if (!activeKey || view !== "schedule") return;
-    fetch(`${API}/leagues/${activeKey}/schedule/weeks`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/schedule/weeks`)
       .then((r) => r.json())
       .then((data: number[]) => {
         setWeeks(data);
@@ -523,7 +524,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   useEffect(() => {
     if (!activeKey || view !== "schedule") return;
     setScheduleLoading(true);
-    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`, { credentials: "include" })
+    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`)
       .then((r) => r.json())
       .then(setGames)
       .catch(() => setGames([]))
@@ -531,7 +532,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
   }, [activeKey, view, scheduleWeek]);
 
   function loadResults(key: string) {
-    fetch(`${API}/leagues/${key}/results`, { credentials: "include" })
+    fetch(`${API}/leagues/${key}/results`)
       .then((r) => r.json())
       .then(setResults)
       .catch(() => setResults([]));
@@ -542,22 +543,15 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setRunning(true);
     setRunError(null);
     try {
-      const res = await fetch(`${API}/sims/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          league_key: activeKey,
-          my_slot: mySlot,
-          n_sims: nSims,
-          forced_picks: Object.fromEntries(
-            forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
-          ),
-          already_picked: draftLog,
-        }),
-      });
-      if (!res.ok) throw new Error("Simulation failed to run");
-      const data = await res.json();
+      const data = (await postJSON("/sims/run", {
+        league_key: activeKey,
+        my_slot: mySlot,
+        n_sims: nSims,
+        forced_picks: Object.fromEntries(
+          forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
+        ),
+        already_picked: draftLog,
+      })) as { sample_roster?: SamplePick[] };
       setLastSample(data.sample_roster ?? []);
       loadResults(activeKey);
     } catch (e) {
@@ -572,21 +566,15 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
     setSeasonRunning(true);
     setSeasonError(null);
     try {
-      const res = await fetch(`${API}/leagues/${activeKey}/sims/season`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          my_slot: mySlot,
-          n_samples: nSamples,
-          forced_picks: Object.fromEntries(
-            forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
-          ),
-          already_picked: draftLog,
-        }),
+      const data = await postJSON(`/leagues/${activeKey}/sims/season`, {
+        my_slot: mySlot,
+        n_samples: nSamples,
+        forced_picks: Object.fromEntries(
+          forcedPicks.filter((f) => f.playerId).map((f) => [f.round, f.playerId])
+        ),
+        already_picked: draftLog,
       });
-      if (!res.ok) throw new Error((await res.json()).detail ?? "Season simulation failed");
-      setSeasonSim(await res.json());
+      setSeasonSim(data as SeasonSim);
     } catch (e) {
       setSeasonError(e instanceof Error ? e.message : "Season simulation failed");
     } finally {
@@ -658,19 +646,7 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
         <button className="help-btn" onClick={() => setShowHelp(true)} title="How the math works">
           ?
         </button>
-        <div className="session-bar">
-          {user.avatar && (
-            <img
-              className="confirm-avatar confirm-avatar-sm"
-              src={`https://sleepercdn.com/avatars/thumbs/${user.avatar}`}
-              alt=""
-            />
-          )}
-          <span>{user.display_name ?? user.sleeper_username}</span>
-          <button className="tab" onClick={onSignOut}>
-            Switch user
-          </button>
-        </div>
+        <SleeperConnect user={user} onConfirm={onConfirmUser} onClear={onClearUser} />
       </div>
 
       {showHelp && (
@@ -778,8 +754,13 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
         <div className="grid">
           <div className="card full-width">
             <h2>Your Roster</h2>
-            {rosterError && <p className="state-msg error">{rosterError}</p>}
-            {!rosterError && !roster && <p className="state-msg">Loading...</p>}
+            {!user && (
+              <p className="state-msg">
+                Enter your Sleeper username in the top right corner to load your roster.
+              </p>
+            )}
+            {user && rosterError && <p className="state-msg error">{rosterError}</p>}
+            {user && !rosterError && !roster && <p className="state-msg">Loading...</p>}
             {roster && (
               <>
                 <div className="roster-meta">
