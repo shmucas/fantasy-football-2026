@@ -16,6 +16,9 @@ class LeagueConfig(BaseModel):
     # True when the league is served by a pool built for a different league
     # shape, so the frontend can say the projections are approximate.
     approx_pool: bool = False
+    # True when a superflex (or other non-standard flex) slot was modelled as a
+    # plain RB/WR/TE flex, which understates a QB-hungry roster.
+    flex_approx: bool = False
 
 
 LEAGUES: dict[str, LeagueConfig] = {

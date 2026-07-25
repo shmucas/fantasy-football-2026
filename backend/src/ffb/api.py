@@ -537,16 +537,42 @@ def get_schedule(league_key: str, week: int) -> list[dict]:
     return week_schedule(int(league.season), week)
 
 
+# Sleeper roster slots the simulator has no model for. The flex family all
+# collapses onto our FLEX (RB/WR/TE); SUPER_FLEX really allows a QB too, so a
+# superflex league is modelled as a plain flex and flagged. Bench-like and IDP
+# slots are dropped: our player pool has no defensive players and nothing is
+# ever started from taxi or IR.
+FLEX_SLOTS = {"FLEX", "WRRB_FLEX", "REC_FLEX", "SUPER_FLEX", "IDP_FLEX"}
+UNPLAYED_SLOTS = {"TAXI", "IR"}
+IDP_SLOTS = {"DL", "LB", "DB", "IDP", "DE", "DT", "CB", "S"}
+
+
+def _normalize_slots(roster_positions: list[str]) -> tuple[list[str], bool]:
+    slots = []
+    approx = False
+    for slot in roster_positions:
+        if slot in UNPLAYED_SLOTS or slot in IDP_SLOTS:
+            continue
+        if slot in FLEX_SLOTS:
+            approx = approx or slot != "FLEX"
+            slots.append("FLEX")
+        else:
+            slots.append(slot)
+    return slots, approx
+
+
 def _league_from_sleeper(info: dict) -> LeagueConfig:
     """Map a Sleeper league payload onto our config shape. `key` is the Sleeper
     league id, so every league the user is in addresses its own endpoints."""
+    slots, flex_approx = _normalize_slots(info["roster_positions"])
     return LeagueConfig(
         key=info["league_id"],
         name=info["name"],
         league_id=info["league_id"],
         season=str(info["season"]),
         num_teams=info["total_rosters"],
-        roster_positions=info["roster_positions"],
+        roster_positions=slots,
+        flex_approx=flex_approx,
         # Sleeper's waiver_type 2 is FAAB bidding; 0/1 are rolling/reverse waivers.
         faab=info.get("settings", {}).get("waiver_type") == 2,
         ppr=float(info.get("scoring_settings", {}).get("rec", 0.0)),

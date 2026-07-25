@@ -63,6 +63,7 @@ type LeagueConfig = {
   faab: boolean;
   ppr: number;
   approx_pool: boolean;
+  flex_approx: boolean;
 };
 
 type Roster = {
@@ -886,7 +887,7 @@ function DraftApp({
         {(["draft", "waivers", "schedule", "sims"] as const).map((v) => (
           <button
             key={v}
-            className={`subtab ${view === v ? "active" : ""}`}
+            className={`subtab ${view === v && active ? "active" : ""}`}
             onClick={() => setView(v)}
             disabled={!active}
             title={active ? undefined : "Pick a league first"}
@@ -924,10 +925,20 @@ function DraftApp({
         </div>
       )}
 
-      {active && active.approx_pool && view !== "roadmap" && (
+      {active && (active.approx_pool || active.flex_approx) && view !== "roadmap" && (
         <p className="approx-note">
-          Projections for {active.name} are borrowed from the closest league we have a player pool
-          for, so treat the point totals as approximate.
+          {active.approx_pool && (
+            <>
+              Projections for {active.name} are borrowed from the closest league we have a player
+              pool for, so treat the point totals as approximate.{" "}
+            </>
+          )}
+          {active.flex_approx && (
+            <>
+              This league has a superflex spot, which is modelled as a normal RB/WR/TE flex - the
+              simulator will not put a second quarterback there.
+            </>
+          )}
         </p>
       )}
 

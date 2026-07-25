@@ -668,6 +668,16 @@
   color: var(--text);
 }
 
+.subtab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.subtab:disabled:hover {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+
 .subtab.active {
   background: var(--panel);
   border-color: var(--border);
