@@ -461,6 +461,12 @@ const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
           "The end goal: the bot claims waivers and sets lineups on its own, and tells you afterwards what it did and why.",
         tags: ["Autopilot"],
       },
+      {
+        title: "Reverse engineer the Sleeper API",
+        detail:
+          "Sleeper's documented read-only endpoints stop short of the good stuff. Map what the app itself calls so projections, matchups and transactions can be pulled properly. Hushhhh.",
+        tags: ["Sleeper", "Research"],
+      },
     ],
   },
 ];
@@ -873,17 +879,22 @@ function DraftApp({
       )}
 
       {leagues.length > 0 && (
-        <div className="tabs">
-          {leagues.map((l) => (
-            <button
-              key={l.key}
-              className={`tab ${l.key === activeKey ? "active" : ""}`}
-              onClick={() => setActiveKey(l.key)}
-            >
-              {l.name}
-              <span className="tab-meta">{l.num_teams} teams</span>
-            </button>
-          ))}
+        <div className="league-picker">
+          <label className="league-picker-label" htmlFor="league-select">
+            League
+          </label>
+          <select
+            id="league-select"
+            className="league-select"
+            value={activeKey ?? ""}
+            onChange={(e) => setActiveKey(e.target.value)}
+          >
+            {leagues.map((l) => (
+              <option key={l.key} value={l.key}>
+                {l.name} - {l.num_teams} teams
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
@@ -1620,6 +1631,16 @@ function DraftApp({
         </div>
       )}
 
+      <footer className="site-footer">
+        <a
+          className="repo-link"
+          href="https://github.com/shmucas/fantasy-football-2026"
+          target="_blank"
+          rel="noreferrer"
+        >
+          View source on GitHub
+        </a>
+      </footer>
     </>
   );
 }
