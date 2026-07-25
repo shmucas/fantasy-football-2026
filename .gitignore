@@ -8,3 +8,4 @@ dist/
 build/
 backend/data/ffb.db
 backend/data/results/
+.vercel
