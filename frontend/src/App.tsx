@@ -59,9 +59,10 @@ type LeagueConfig = {
   name: string;
   season: string;
   num_teams: number;
-  friend_group: string;
   roster_positions: string[];
   faab: boolean;
+  ppr: number;
+  approx_pool: boolean;
 };
 
 type Roster = {
@@ -428,14 +429,19 @@ function DraftApp({
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
   useEffect(() => {
-    fetch(`${API}/leagues`)
+    if (!user) {
+      setLeagues([]);
+      setActiveKey(null);
+      return;
+    }
+    fetch(`${API}/leagues?sleeper_user_id=${user.sleeper_user_id}`)
       .then((r) => r.json())
       .then((data: LeagueConfig[]) => {
         setLeagues(data);
-        if (data.length) setActiveKey(data[0].key);
+        setActiveKey(data.length ? data[0].key : null);
       })
       .catch(() => setLeagues([]));
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!activeKey) return;

@@ -19,7 +19,7 @@ from ffb.db import init_db
 from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
-from ffb.leagues import LEAGUES
+from ffb.leagues import LEAGUES, LeagueConfig
 from ffb.nfldata.ids import sleeper_team_lookup
 from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sim.evaluate import run_scenarios, summarize
@@ -54,11 +54,20 @@ app.add_middleware(
 )
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,32}$")
+DEFAULT_SEASON = os.getenv("FFB_SEASON", "2026")
 
 
 @app.get("/api/leagues")
-def list_leagues() -> list[dict]:
-    return [league.model_dump() for league in LEAGUES.values()]
+def list_leagues(sleeper_user_id: str, season: str = DEFAULT_SEASON) -> list[dict]:
+    """Every league the Sleeper user actually plays in that season. Nothing here
+    is configured on our side - Sleeper is the source of truth for the list."""
+    try:
+        with SleeperClient() as client:
+            leagues = client.get_user_leagues(sleeper_user_id, season)
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Couldn't reach Sleeper right now") from exc
+
+    return [_league_from_sleeper(info).model_dump() for info in leagues or []]
 
 
 @app.get("/api/sleeper/user/{username}")
@@ -144,9 +153,7 @@ class SimResponse(ScenarioStats):
 @app.post("/api/sims/run", response_model=SimResponse)
 def run_sim(req: SimRequest) -> SimResponse:
     league = _get_league(req.league_key)
-    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
-    if not pool_path.exists():
-        raise HTTPException(404, f"No player pool found at {pool_path}")
+    pool_path = _league_pool(league)
 
     if len(set(req.already_picked)) != len(req.already_picked):
         raise HTTPException(400, "already_picked contains the same player more than once")
@@ -255,9 +262,7 @@ class SeasonSimResponse(BaseModel):
 def run_season_sim(league_key: str, req: SeasonSimRequest) -> SeasonSimResponse:
     """Season simulator: turns projected points into expected wins for our team."""
     league = _get_league(league_key)
-    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
-    if not pool_path.exists():
-        raise HTTPException(404, f"No player pool found at {pool_path}")
+    pool_path = _league_pool(league)
     if not 1 <= req.my_slot <= league.num_teams:
         raise HTTPException(400, f"my_slot must be between 1 and {league.num_teams}")
     if req.n_samples < 50 or req.n_samples > 2000:
@@ -367,8 +372,8 @@ def list_results(league_key: str) -> list[ScenarioStats]:
 @app.get("/api/leagues/{league_key}/players", response_model=list[dict])
 def list_players(league_key: str) -> list[dict]:
     league = _get_league(league_key)
-    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
-    if not pool_path.exists():
+    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    if pool_path is None:
         return []
     with pool_path.open() as f:
         return [_with_team(row) for row in csv.DictReader(f)]
@@ -378,8 +383,8 @@ def list_players(league_key: str) -> list[dict]:
 def recommend_next_pick(league_key: str, exclude: str = "") -> list[dict]:
     """Best available players by VORP, given players already picked/forced elsewhere."""
     league = _get_league(league_key)
-    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
-    if not pool_path.exists():
+    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    if pool_path is None:
         return []
 
     players = load_players(pool_path)
@@ -408,8 +413,8 @@ def recommend_next_pick(league_key: str, exclude: str = "") -> list[dict]:
 def list_waivers(league_key: str) -> list[dict]:
     """Players in the pool not currently rostered by anyone in the league."""
     league = _get_league(league_key)
-    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
-    if not pool_path.exists():
+    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    if pool_path is None:
         return []
 
     with SleeperClient() as client:
@@ -429,8 +434,8 @@ def recommend_waivers(league_key: str, sleeper_user_id: str) -> list[dict]:
     """Best available waiver-wire pickups for your roster: ranked by VORP against the
     whole league's replacement level, flagged where they'd fill a starting need you have."""
     league = _get_league(league_key)
-    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
-    if not pool_path.exists():
+    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    if pool_path is None:
         return []
 
     with SleeperClient() as client:
@@ -532,11 +537,76 @@ def get_schedule(league_key: str, week: int) -> list[dict]:
     return week_schedule(int(league.season), week)
 
 
-def _get_league(league_key: str):
-    league = LEAGUES.get(league_key)
-    if league is None:
+def _league_from_sleeper(info: dict) -> LeagueConfig:
+    """Map a Sleeper league payload onto our config shape. `key` is the Sleeper
+    league id, so every league the user is in addresses its own endpoints."""
+    return LeagueConfig(
+        key=info["league_id"],
+        name=info["name"],
+        league_id=info["league_id"],
+        season=str(info["season"]),
+        num_teams=info["total_rosters"],
+        roster_positions=info["roster_positions"],
+        # Sleeper's waiver_type 2 is FAAB bidding; 0/1 are rolling/reverse waivers.
+        faab=info.get("settings", {}).get("waiver_type") == 2,
+        ppr=float(info.get("scoring_settings", {}).get("rec", 0.0)),
+        approx_pool=_pool_for(
+            float(info.get("scoring_settings", {}).get("rec", 0.0)),
+            info["total_rosters"],
+        )[1],
+    )
+
+
+def _pool_for(ppr: float, num_teams: int) -> tuple[Path | None, bool]:
+    """Pick the prebuilt draft pool that best fits a league shape.
+
+    Pools are expensive to build (ADP fetch plus a multi-season history model),
+    so they are generated offline per league in LEAGUES. A league we have no
+    exact pool for reuses the closest one - same scoring format first, then the
+    nearest team count - and gets flagged as approximate."""
+    candidates = []
+    for league in LEAGUES.values():
+        path = DATA_DIR / "pools" / f"{league.key}.csv"
+        if path.exists():
+            candidates.append((league, path))
+    if not candidates:
+        return None, False
+
+    exact = [
+        (l, p) for l, p in candidates if l.ppr == ppr and l.num_teams == num_teams
+    ]
+    if exact:
+        return exact[0][1], False
+
+    same_format = [(l, p) for l, p in candidates if l.ppr == ppr] or candidates
+    best = min(same_format, key=lambda lp: abs(lp[0].num_teams - num_teams))
+    return best[1], True
+
+
+def _league_pool(league: LeagueConfig) -> Path:
+    path = _pool_for(league.ppr, league.num_teams)[0]
+    if path is None:
+        raise HTTPException(404, "No player pool has been built yet")
+    return path
+
+
+@lru_cache(maxsize=32)
+def _get_league(league_key: str) -> LeagueConfig:
+    """Look a league up on Sleeper by its id. Cached because every request in a
+    league view needs it and Sleeper asks not to be polled hard."""
+    try:
+        with SleeperClient() as client:
+            info = client.get_league(league_key)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(404, f"Unknown league {league_key!r}") from exc
+        raise HTTPException(502, "Couldn't reach Sleeper right now") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "Couldn't reach Sleeper right now") from exc
+
+    if not info:
         raise HTTPException(404, f"Unknown league {league_key!r}")
-    return league
+    return _league_from_sleeper(info)
 
 
 def _summarize(scores: list[float]) -> dict[str, float]:
