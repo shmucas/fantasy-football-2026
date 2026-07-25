@@ -13,6 +13,7 @@ from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
 from ffb.leagues import LEAGUES, SLEEPER_USER_ID
+from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sleeper_client import SleeperClient
 
 app = FastAPI(title="FFB API")
@@ -238,6 +239,18 @@ def list_waivers(league_key: str) -> list[dict]:
     available = [p for p in pool if p["player_id"] not in rostered_ids]
     available.sort(key=lambda p: float(p["proj_points"] or 0), reverse=True)
     return available
+
+
+@app.get("/api/leagues/{league_key}/schedule/weeks", response_model=list[int])
+def list_schedule_weeks(league_key: str) -> list[int]:
+    league = _get_league(league_key)
+    return available_weeks(int(league.season))
+
+
+@app.get("/api/leagues/{league_key}/schedule/{week}", response_model=list[dict])
+def get_schedule(league_key: str, week: int) -> list[dict]:
+    league = _get_league(league_key)
+    return week_schedule(int(league.season), week)
 
 
 def _get_league(league_key: str):

@@ -55,6 +55,19 @@ type SamplePick = {
   reason: string;
 };
 
+type Game = {
+  game_id: string;
+  game_type: string;
+  week: number;
+  gameday: string;
+  weekday: string;
+  gametime: string | null;
+  away_team: string;
+  away_score: number | null;
+  home_team: string;
+  home_score: number | null;
+};
+
 function App() {
   const [leagues, setLeagues] = useState<LeagueConfig[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -73,9 +86,13 @@ function App() {
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
   const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [view, setView] = useState<"draft" | "waivers">("draft");
+  const [view, setView] = useState<"draft" | "waivers" | "schedule">("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
   const [waiversLoading, setWaiversLoading] = useState(false);
+  const [weeks, setWeeks] = useState<number[]>([]);
+  const [scheduleWeek, setScheduleWeek] = useState<number>(1);
+  const [games, setGames] = useState<Game[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
@@ -139,6 +156,28 @@ function App() {
       .catch(() => setWaivers([]))
       .finally(() => setWaiversLoading(false));
   }, [activeKey, view]);
+
+  useEffect(() => {
+    if (!activeKey || view !== "schedule") return;
+    fetch(`${API}/leagues/${activeKey}/schedule/weeks`)
+      .then((r) => r.json())
+      .then((data: number[]) => {
+        setWeeks(data);
+        if (data.length && !data.includes(scheduleWeek)) setScheduleWeek(data[0]);
+      })
+      .catch(() => setWeeks([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, view]);
+
+  useEffect(() => {
+    if (!activeKey || view !== "schedule") return;
+    setScheduleLoading(true);
+    fetch(`${API}/leagues/${activeKey}/schedule/${scheduleWeek}`)
+      .then((r) => r.json())
+      .then(setGames)
+      .catch(() => setGames([]))
+      .finally(() => setScheduleLoading(false));
+  }, [activeKey, view, scheduleWeek]);
 
   function loadResults(key: string) {
     fetch(`${API}/leagues/${key}/results`)
@@ -264,6 +303,12 @@ function App() {
             onClick={() => setView("waivers")}
           >
             Waivers
+          </button>
+          <button
+            className={`subtab ${view === "schedule" ? "active" : ""}`}
+            onClick={() => setView("schedule")}
+          >
+            Schedule
           </button>
         </div>
       )}
@@ -647,6 +692,51 @@ function App() {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {active && view === "schedule" && (
+        <div className="card full-width">
+          <h2>NFL Schedule</h2>
+          <p className="state-msg" style={{ marginBottom: 14 }}>
+            Game-by-game schedule for the {active.season} season, useful for spotting bye weeks
+            and stacked matchups before you draft.
+          </p>
+          <div className="pos-filters">
+            {weeks.map((w) => (
+              <button
+                key={w}
+                className={`pos-filter ${w === scheduleWeek ? "active" : ""}`}
+                onClick={() => setScheduleWeek(w)}
+              >
+                Wk {w}
+              </button>
+            ))}
+          </div>
+          {scheduleLoading && <p className="state-msg">Loading...</p>}
+          {!scheduleLoading && games.length === 0 && (
+            <p className="results-empty">No games found for this week.</p>
+          )}
+          {!scheduleLoading && games.length > 0 && (
+            <ul className="schedule-list">
+              {games.map((g) => (
+                <li key={g.game_id} className="schedule-row">
+                  <span className="schedule-date">
+                    {g.weekday}
+                    {g.gametime ? ` · ${g.gametime}` : ""}
+                  </span>
+                  <span className="schedule-matchup">
+                    <strong>{g.away_team}</strong> @ <strong>{g.home_team}</strong>
+                  </span>
+                  {g.away_score !== null && g.home_score !== null && (
+                    <span className="schedule-score">
+                      {g.away_score} - {g.home_score}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
