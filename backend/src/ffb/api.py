@@ -119,9 +119,13 @@ def run_sim(req: SimRequest) -> SimResponse:
         raise HTTPException(400, "already_picked contains the same player more than once")
 
     players = load_players(pool_path)
+    # A pool smaller than num_teams * rounds would run the draft dry mid-simulation.
+    rounds = min(req.rounds, len(players) // league.num_teams)
+    if rounds < 1:
+        raise HTTPException(400, "Player pool is too small for this league")
     try:
         scores = run_scenario(
-            players, league.num_teams, req.rounds, league.roster_positions,
+            players, league.num_teams, rounds, league.roster_positions,
             req.my_slot, req.forced_picks, req.n_sims, already_picked=req.already_picked,
         )
     except ValueError as e:
@@ -140,14 +144,14 @@ def run_sim(req: SimRequest) -> SimResponse:
         writer.writerow(["projected_points"])
         writer.writerows([[s] for s in scores])
 
-    sample = _sample_roster_with_reasons(players, league, req)
+    sample = _sample_roster_with_reasons(players, league, req, rounds)
     return SimResponse(scenario=tag, sample_roster=sample, **_summarize(scores))
 
 
-def _sample_roster_with_reasons(players, league, req: SimRequest) -> list[SamplePick]:
+def _sample_roster_with_reasons(players, league, req: SimRequest, rounds: int) -> list[SamplePick]:
     """Runs one representative draft and explains each of our picks."""
     result = simulate_draft(
-        players, league.num_teams, req.rounds, league.roster_positions,
+        players, league.num_teams, rounds, league.roster_positions,
         req.my_slot, random.Random(0), req.forced_picks, req.already_picked,
     )
     replacement = replacement_levels(players, league.roster_positions, league.num_teams)
