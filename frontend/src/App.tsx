@@ -3,6 +3,57 @@ import "./App.css";
 
 const API = "http://localhost:8010/api";
 
+// Team codes disagree across our data sources (nflverse ids, nflverse schedules,
+// Sleeper's own CDN) - normalize everything to the codes Sleeper's logo CDN expects.
+const TEAM_ALIASES: Record<string, string> = {
+  GBP: "GB",
+  JAC: "JAX",
+  KCC: "KC",
+  LVR: "LV",
+  NEP: "NE",
+  NOS: "NO",
+  SFO: "SF",
+  TBB: "TB",
+  LA: "LAR",
+  OAK: "LV",
+  SDC: "LAC",
+  STL: "LAR",
+  RAM: "LAR",
+  FA: "",
+  "FA*": "",
+};
+
+function normalizeTeam(code: string): string {
+  return TEAM_ALIASES[code] ?? code;
+}
+
+function teamLogoUrl(code: string): string {
+  const team = normalizeTeam(code);
+  return team ? `https://sleepercdn.com/images/team_logos/nfl/${team.toLowerCase()}.png` : "";
+}
+
+// FFC's ADP source has no stable id or team code for defenses - the only
+// reliable signal is the "<City> Defense" name, so map that to a team code.
+const DEF_CITY_TO_TEAM: Record<string, string> = {
+  Arizona: "ARI", Atlanta: "ATL", Baltimore: "BAL", Buffalo: "BUF",
+  Carolina: "CAR", Chicago: "CHI", Cincinnati: "CIN", Cleveland: "CLE",
+  Dallas: "DAL", Denver: "DEN", Detroit: "DET", "Green Bay": "GB",
+  Houston: "HOU", Indianapolis: "IND", Jacksonville: "JAX",
+  "Kansas City": "KC", "LA Chargers": "LAC", "LA Rams": "LAR", "Las Vegas": "LV",
+  Miami: "MIA", Minnesota: "MIN", "New England": "NE", "New Orleans": "NO",
+  "NY Giants": "NYG", "NY Jets": "NYJ", Philadelphia: "PHI", Pittsburgh: "PIT",
+  Seattle: "SEA", "San Francisco": "SF", "Tampa Bay": "TB", Tennessee: "TEN",
+  Washington: "WAS",
+};
+
+function avatarUrl(playerId: string, position?: string, name?: string): string {
+  if (position === "DEF") {
+    const city = name?.replace(/ Defense$/, "") ?? "";
+    return teamLogoUrl(DEF_CITY_TO_TEAM[city] ?? playerId);
+  }
+  return `https://sleepercdn.com/content/nfl/players/${playerId}.jpg`;
+}
+
 type LeagueConfig = {
   key: string;
   name: string;
@@ -37,6 +88,7 @@ type Player = {
   proj_stdev: string;
   adp: string;
   adp_stdev: string;
+  nfl_team: string;
 };
 
 type Recommendation = {
@@ -45,6 +97,7 @@ type Recommendation = {
   position: string;
   proj_points: number;
   vorp: number;
+  reason: string;
 };
 
 type SamplePick = {
@@ -93,6 +146,7 @@ function App() {
   const [scheduleWeek, setScheduleWeek] = useState<number>(1);
   const [games, setGames] = useState<Game[]>([]);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const active = leagues.find((l) => l.key === activeKey) ?? null;
 
@@ -276,7 +330,70 @@ function App() {
           <h1>FFB Draft Simulator</h1>
           <p>Fantasy football draft planning across your leagues</p>
         </div>
+        <button className="help-btn" onClick={() => setShowHelp(true)} title="How the math works">
+          ?
+        </button>
       </div>
+
+      {showHelp && (
+        <div className="modal-backdrop" onClick={() => setShowHelp(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>How the math works</h2>
+              <button className="remove-pick-btn" onClick={() => setShowHelp(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <h3>Player value: VORP</h3>
+              <p>
+                A player's raw projection doesn't say much on its own - what matters is how much
+                better they are than the player you'd get for free at the same position. We
+                compute replacement level per position: the projection of the last starter-worthy
+                player at that position, league-wide, given your roster rules and number of
+                teams. Then:
+              </p>
+              <pre>VORP(player) = player.proj_points - replacement_level[player.position]</pre>
+              <p>
+                This is what ranks the "Suggested next pick" list and the sample roster's picks.
+              </p>
+
+              <h3>Opponent draft model</h3>
+              <p>
+                Each simulated opponent doesn't just take the top of the ADP board - real drafts
+                have noise (reaches, sleepers) and are shaped by roster need. For each available
+                player we compute a noisy effective draft slot:
+              </p>
+              <pre>effective_slot = ADP + Normal(0, sigma) + need_penalty</pre>
+              <p>
+                The opponent takes the player with the lowest effective slot. Noise grows by
+                round, so round 1 is close to chalk and late rounds are noisy reaches. Once a
+                position's starting requirement is already filled on a team's roster, that
+                position gets a penalty that pushes opponents off it.
+              </p>
+
+              <h3>Draft simulation</h3>
+              <p>
+                One simulated draft plays the snake order pick by pick. Any pick already logged
+                on the Live Draft Board is replayed exactly as it happened, not simulated. Your
+                own forced picks are reserved ahead of time so they can't be sniped by an
+                opponent. Running many of these and looking at the distribution of your team's
+                projected points (mean, stdev, P10/P50/P90) is how "Scenario Results" gets built.
+              </p>
+
+              <h3>Season simulation: points to wins</h3>
+              <p>
+                Total projected points is a rough score - what actually matters is win
+                probability. Each player gets a season-long luck factor plus a week-to-week luck
+                factor on top of it, every team starts its best lineup by projection, and a full
+                round-robin schedule is played out to count wins. Two variance-reduction tricks
+                (common random numbers and Latin hypercube sampling) keep results stable with
+                fewer simulation runs.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="tabs">
         {leagues.map((l) => (
@@ -343,7 +460,7 @@ function App() {
                     <li key={id} className="player-chip">
                       <img
                         className="avatar avatar-sm"
-                        src={`https://sleepercdn.com/content/nfl/players/${id}.jpg`}
+                        src={avatarUrl(id, playerById.get(id)?.position, playerById.get(id)?.name)}
                         onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                         alt=""
                       />
@@ -357,7 +474,7 @@ function App() {
                       <li key={`plan-${f.round}`} className="player-chip planned">
                         <img
                           className="avatar avatar-sm"
-                          src={`https://sleepercdn.com/content/nfl/players/${f.playerId}.jpg`}
+                          src={avatarUrl(f.playerId, playerById.get(f.playerId)?.position, playerById.get(f.playerId)?.name)}
                           onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                           alt=""
                         />
@@ -397,7 +514,7 @@ function App() {
                       <span className="rank-num">{i + 1}</span>
                       <img
                         className="avatar avatar-sm"
-                        src={`https://sleepercdn.com/content/nfl/players/${r.player_id}.jpg`}
+                        src={avatarUrl(r.player_id, r.position, r.name)}
                         onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                         alt=""
                       />
@@ -407,6 +524,7 @@ function App() {
                           <span className="pos-pill">{r.position}</span>
                           <span className="rank-vorp">+{r.vorp.toFixed(0)} VORP</span>
                         </div>
+                        <p className="rank-reason">{r.reason}</p>
                       </div>
                       <button className="draft-pick-btn">Draft</button>
                     </li>
@@ -441,7 +559,7 @@ function App() {
                     <li key={i} className={slot === mySlot ? "mine" : ""}>
                       <img
                         className="avatar avatar-sm"
-                        src={`https://sleepercdn.com/content/nfl/players/${id}.jpg`}
+                        src={avatarUrl(id, playerById.get(id)?.position, playerById.get(id)?.name)}
                         onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                         alt=""
                       />
@@ -528,7 +646,7 @@ function App() {
                       <div className="reason-head">
                         <img
                           className="avatar avatar-sm"
-                          src={`https://sleepercdn.com/content/nfl/players/${p.player_id}.jpg`}
+                          src={avatarUrl(p.player_id, p.position, p.name)}
                           onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                           alt=""
                         />
@@ -606,6 +724,7 @@ function App() {
                       <th></th>
                       <th>Player</th>
                       <th>Pos</th>
+                      <th>Team</th>
                       <th>ADP</th>
                       <th>Proj. Pts</th>
                     </tr>
@@ -621,7 +740,7 @@ function App() {
                         <td>
                           <img
                             className="avatar"
-                            src={`https://sleepercdn.com/content/nfl/players/${p.player_id}.jpg`}
+                            src={avatarUrl(p.player_id, p.position, p.name)}
                             onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                             alt=""
                           />
@@ -629,6 +748,23 @@ function App() {
                         <td>{p.name}</td>
                         <td>
                           <span className="pos-pill">{p.position}</span>
+                        </td>
+                        <td>
+                          {p.position === "DEF" ? (
+                            normalizeTeam(p.player_id)
+                          ) : p.nfl_team ? (
+                            <span className="team-cell">
+                              <img
+                                className="team-logo"
+                                src={teamLogoUrl(p.nfl_team)}
+                                onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                                alt=""
+                              />
+                              {normalizeTeam(p.nfl_team)}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td>{Number(p.adp).toFixed(1)}</td>
                         <td>{Number(p.proj_points).toFixed(0)}</td>
@@ -661,6 +797,7 @@ function App() {
                     <th></th>
                     <th>Player</th>
                     <th>Pos</th>
+                    <th>Team</th>
                     <th>ADP</th>
                     <th>Proj. Pts</th>
                   </tr>
@@ -676,7 +813,7 @@ function App() {
                       <td>
                         <img
                           className="avatar"
-                          src={`https://sleepercdn.com/content/nfl/players/${p.player_id}.jpg`}
+                          src={avatarUrl(p.player_id, p.position, p.name)}
                           onError={(e) => (e.currentTarget.style.visibility = "hidden")}
                           alt=""
                         />
@@ -684,6 +821,23 @@ function App() {
                       <td>{p.name}</td>
                       <td>
                         <span className="pos-pill">{p.position}</span>
+                      </td>
+                      <td>
+                        {p.position === "DEF" ? (
+                          normalizeTeam(p.player_id)
+                        ) : p.nfl_team ? (
+                          <span className="team-cell">
+                            <img
+                              className="team-logo"
+                              src={teamLogoUrl(p.nfl_team)}
+                              onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                              alt=""
+                            />
+                            {normalizeTeam(p.nfl_team)}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
                       </td>
                       <td>{Number(p.adp).toFixed(1)}</td>
                       <td>{Number(p.proj_points).toFixed(0)}</td>
@@ -723,11 +877,25 @@ function App() {
               {games.map((g) => (
                 <li key={g.game_id} className="schedule-row">
                   <span className="schedule-date">
-                    {g.weekday}
-                    {g.gametime ? ` · ${g.gametime}` : ""}
+                    {g.weekday}, {g.gameday}
+                    {g.gametime ? ` · ${g.gametime} ET` : ""}
                   </span>
                   <span className="schedule-matchup">
-                    <strong>{g.away_team}</strong> @ <strong>{g.home_team}</strong>
+                    <img
+                      className="team-logo"
+                      src={teamLogoUrl(g.away_team)}
+                      onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                      alt=""
+                    />
+                    <strong>{normalizeTeam(g.away_team)}</strong>
+                    <span className="schedule-at">@</span>
+                    <img
+                      className="team-logo"
+                      src={teamLogoUrl(g.home_team)}
+                      onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                      alt=""
+                    />
+                    <strong>{normalizeTeam(g.home_team)}</strong>
                   </span>
                   {g.away_score !== null && g.home_score !== null && (
                     <span className="schedule-score">

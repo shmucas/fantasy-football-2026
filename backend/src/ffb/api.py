@@ -3,6 +3,7 @@
 import csv
 import random
 import statistics
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -13,6 +14,7 @@ from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
 from ffb.leagues import LEAGUES, SLEEPER_USER_ID
+from ffb.nfldata.ids import sleeper_team_lookup
 from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sleeper_client import SleeperClient
 
@@ -192,7 +194,7 @@ def list_players(league_key: str) -> list[dict]:
     if not pool_path.exists():
         return []
     with pool_path.open() as f:
-        return list(csv.DictReader(f))
+        return [_with_team(row) for row in csv.DictReader(f)]
 
 
 @app.get("/api/leagues/{league_key}/recommend", response_model=list[dict])
@@ -216,6 +218,10 @@ def recommend_next_pick(league_key: str, exclude: str = "") -> list[dict]:
             "position": p.position,
             "proj_points": p.proj_points,
             "vorp": round(vorp(p, replacement), 1),
+            "reason": (
+                f"{p.proj_points:.0f} proj. pts, {vorp(p, replacement):.0f} above the last "
+                f"startable {p.position} in this league - best value left on the board."
+            ),
         }
         for p in ranked
     ]
@@ -236,9 +242,39 @@ def list_waivers(league_key: str) -> list[dict]:
     with pool_path.open() as f:
         pool = list(csv.DictReader(f))
 
-    available = [p for p in pool if p["player_id"] not in rostered_ids]
+    available = [_with_team(p) for p in pool if p["player_id"] not in rostered_ids]
     available.sort(key=lambda p: float(p["proj_points"] or 0), reverse=True)
     return available
+
+
+@lru_cache(maxsize=1)
+def _team_lookup() -> dict[str, str]:
+    return sleeper_team_lookup()
+
+
+DEF_CITY_TO_TEAM = {
+    "Arizona": "ARI", "Atlanta": "ATL", "Baltimore": "BAL", "Buffalo": "BUF",
+    "Carolina": "CAR", "Chicago": "CHI", "Cincinnati": "CIN", "Cleveland": "CLE",
+    "Dallas": "DAL", "Denver": "DEN", "Detroit": "DET", "Green Bay": "GB",
+    "Houston": "HOU", "Indianapolis": "IND", "Jacksonville": "JAX",
+    "Kansas City": "KC", "LA Chargers": "LAC", "LA Rams": "LAR", "Las Vegas": "LV",
+    "Miami": "MIA", "Minnesota": "MIN", "New England": "NE", "New Orleans": "NO",
+    "NY Giants": "NYG", "NY Jets": "NYJ", "Philadelphia": "PHI", "Pittsburgh": "PIT",
+    "Seattle": "SEA", "San Francisco": "SF", "Tampa Bay": "TB", "Tennessee": "TEN",
+    "Washington": "WAS",
+}
+
+
+def _with_team(player: dict) -> dict:
+    """Attach the player's current NFL team abbreviation. Defense rows carry no
+    Sleeper id we can trust (the ADP source has its own ids), so derive the team
+    from the "<City> Defense" name instead."""
+    if player["position"] == "DEF":
+        city = player["name"].removesuffix(" Defense")
+        team = DEF_CITY_TO_TEAM.get(city, "")
+    else:
+        team = _team_lookup().get(player["player_id"], "")
+    return {**player, "nfl_team": team}
 
 
 @app.get("/api/leagues/{league_key}/schedule/weeks", response_model=list[int])
