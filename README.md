@@ -10,7 +10,9 @@ one database, not one per league.
 
 - `backend/` - Python. Pulls Sleeper data, builds player projections, and runs
   the draft and season simulations.
-- `frontend/` - React app to view teams, picks, and simulation results.
+- `frontend/` - React app to view teams, picks, and simulation results. Sign in
+  with your Sleeper username to get in - four tabs per league: Draft, Waivers,
+  Schedule, and Simulations.
 
 ## Backend setup
 
@@ -61,17 +63,28 @@ Environment variables:
 Local dev origins keep working without this variable: `localhost` and
 `127.0.0.1` on any port are always allowed.
 
+Sign-in needs a few more variables now that the app has a login screen. Full
+list, with `FRONTEND_ORIGIN` repeated for context:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `FRONTEND_ORIGIN` | none | Your Vercel URL(s), comma-separated. |
+| `DATABASE_URL` | local SQLite file | Supabase Postgres connection string. `postgres://`/`postgresql://` prefixes are normalized to `postgresql+psycopg://`. |
+| `SESSION_SECRET` | insecure dev default | Signs the session cookie - set a long random value. |
+| `COOKIE_SECURE` | `false` | Set to `true` in production. |
+| `COOKIE_SAMESITE` | `lax` | Set to `none` in production (frontend and backend are on different sites). Requires `COOKIE_SECURE=true`. |
+
+See `backend/README.md` for the full picture on these.
+
 Two things to know:
 
 - The player pools in `backend/data/pools/` are committed, so the API has data
   on first boot. Rebuilding a pool means committing the new CSV, not running
   the build on the host.
 - Simulation results are written to `backend/data/results/`, which is wiped on
-  every redeploy. Fine for now; the Supabase work will move this into the
-  database.
-- Once the Supabase and login work lands, this service will also need
-  `DATABASE_URL` and whatever auth secret that change introduces. Check that
-  branch for the exact names.
+  every redeploy. Fine for now - the season simulator returns results directly
+  in its API response instead of writing to disk, so this only affects the
+  older points-based draft simulator.
 
 ### 2. Frontend (Vercel)
 
@@ -166,6 +179,11 @@ uv run python -m ffb.sim.evaluate --league maxxing_college --my-slot 4 --n-sampl
 
 Prints expected wins, how often you hit the playoff win total, and average points.
 
+The same logic is exposed at `POST /api/leagues/{league_key}/sims/season` for
+the frontend's Simulations tab, which charts expected wins, the win
+distribution, and a P10/P50/P90 points range - carrying over whatever's
+already logged on the Live Draft Board or planned as a forced pick.
+
 ## How the math works
 
 ### Player value: VORP
@@ -250,14 +268,17 @@ with:
 |------|--------------|
 | `ffb/leagues.py` | The two league configs |
 | `ffb/sleeper_client.py` | Read-only Sleeper API client |
+| `ffb/auth.py` | Sleeper-username login: session cookie, `users` table upsert |
+| `ffb/db.py` | SQLAlchemy engine - Supabase Postgres via `DATABASE_URL`, local SQLite otherwise |
 | `ffb/nfldata/scoring.py` | Turn NFL stats into fantasy points for a league |
 | `ffb/nfldata/history.py` | Points curve + week/season variance from past data |
 | `ffb/nfldata/adp.py` | Fetch ADP from Fantasy Football Calculator |
-| `ffb/nfldata/ids.py` | Match player names to Sleeper ids |
+| `ffb/nfldata/ids.py` | Match player names to Sleeper ids, current NFL team lookup |
+| `ffb/nfldata/schedule.py` | NFL game schedule by week, from nflverse |
 | `ffb/nfldata/build.py` | Build the player pool CSV |
 | `ffb/draft/strategy.py` | Player value + the opponent pick model |
 | `ffb/draft/sim.py` | One mock draft |
 | `ffb/draft/run_sims.py` | Many mock drafts, compare points |
 | `ffb/draft/analyze.py` | Compare saved point results |
 | `ffb/sim/season.py` | One simulated season -> your wins |
-| `ffb/sim/evaluate.py` | Compare picks by expected wins |
+| `ffb/sim/evaluate.py` | Compare picks by expected wins (CLI and the Simulations tab's API) |
