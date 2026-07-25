@@ -1,12 +1,19 @@
 # Fantasy Football 2026
 
-Tools to help draft and manage two fantasy football teams on Sleeper.
+Tools to help draft and manage fantasy football teams on Sleeper.
 
-- **Miller League** - 14 teams, high school friends, FAAB waivers - key `miller_league_hs`
-- **FANTASYFOOTBALLMAXXING** - 10 teams, college friends, rolling waivers - key `maxxing_college`
+Enter a Sleeper username and the app loads every league that user is in for the
+season straight from Sleeper. Leagues are addressed by their Sleeper league id,
+so nothing about a league is configured here.
 
-Both leagues use the same code. Data is tagged with a `league_key`, so there is
-one database, not one per league.
+Two leagues are still named in `ffb/leagues.py`, but only as the build-time
+registry for generating draft pools offline:
+
+- **Miller League** - 14 teams, half PPR, FAAB waivers - key `miller_league_hs`
+- **FANTASYFOOTBALLMAXXING** - 10 teams, full PPR, rolling waivers - key `maxxing_college`
+
+A league with no exact pool reuses the closest one by scoring format and team
+count, and the app labels those projections as approximate.
 
 - `backend/` - Python. Pulls Sleeper data, builds player projections, and runs
   the draft and season simulations.
@@ -263,7 +270,7 @@ with:
 
 | File | What it does |
 |------|--------------|
-| `ffb/leagues.py` | The two league configs |
+| `ffb/leagues.py` | Build-time league configs - the registry of prebuilt draft pools |
 | `ffb/sleeper_client.py` | Read-only Sleeper API client |
 | `ffb/db.py` | SQLAlchemy engine - Supabase Postgres via `DATABASE_URL`, local SQLite otherwise |
 | `ffb/nfldata/scoring.py` | Turn NFL stats into fantasy points for a league |
