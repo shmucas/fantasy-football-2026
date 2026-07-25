@@ -9,16 +9,17 @@ from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from ffb.auth import current_user_id
 from ffb.auth import router as auth_router
 from ffb.db import init_db
 from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
-from ffb.leagues import LEAGUES, SLEEPER_USER_ID
+from ffb.leagues import LEAGUES
 from ffb.nfldata.ids import sleeper_team_lookup
 from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sim.evaluate import run_scenarios, summarize
@@ -57,8 +58,16 @@ def list_leagues() -> list[dict]:
     return [league.model_dump() for league in LEAGUES.values()]
 
 
+def _current_sleeper_id(request: Request) -> str:
+    user_id = current_user_id(request)
+    if user_id is None:
+        raise HTTPException(401, "Not signed in")
+    return user_id
+
+
 @app.get("/api/leagues/{league_key}/roster")
-def get_my_roster(league_key: str) -> dict:
+def get_my_roster(league_key: str, request: Request) -> dict:
+    sleeper_id = _current_sleeper_id(request)
     league = _get_league(league_key)
     with SleeperClient() as client:
         info = client.get_league(league.league_id)
@@ -66,13 +75,13 @@ def get_my_roster(league_key: str) -> dict:
         users = client.get_users(league.league_id)
 
     user_by_id = {u["user_id"]: u for u in users}
-    my_roster = next((r for r in rosters if r["owner_id"] == SLEEPER_USER_ID), None)
+    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_id), None)
     if my_roster is None:
         raise HTTPException(404, "Your roster wasn't found in this league")
 
     return {
         "status": info["status"],
-        "display_name": user_by_id[SLEEPER_USER_ID]["display_name"],
+        "display_name": user_by_id[sleeper_id]["display_name"],
         "roster_id": my_roster["roster_id"],
         "player_ids": my_roster.get("players") or [],
     }
@@ -389,6 +398,73 @@ def list_waivers(league_key: str) -> list[dict]:
     available = [_with_team(p) for p in pool if p["player_id"] not in rostered_ids]
     available.sort(key=lambda p: float(p["proj_points"] or 0), reverse=True)
     return available
+
+
+@app.get("/api/leagues/{league_key}/waivers/recommend", response_model=list[dict])
+def recommend_waivers(league_key: str, request: Request) -> list[dict]:
+    """Best available waiver-wire pickups for your roster: ranked by VORP against the
+    whole league's replacement level, flagged where they'd fill a starting need you have."""
+    sleeper_id = _current_sleeper_id(request)
+    league = _get_league(league_key)
+    pool_path = DATA_DIR / "pools" / f"{league.key}.csv"
+    if not pool_path.exists():
+        return []
+
+    with SleeperClient() as client:
+        rosters = client.get_rosters(league.league_id)
+    rostered_ids = {pid for r in rosters for pid in (r.get("players") or [])}
+    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_id), None)
+    my_player_ids = set(my_roster.get("players") or []) if my_roster else set()
+
+    players = load_players(pool_path)
+    by_id = {p.player_id: p for p in players}
+    # Replacement level comes from the whole league (rostered + unrostered), since it
+    # represents who's actually startable league-wide, not just who's left on waivers.
+    replacement = replacement_levels(players, league.roster_positions, league.num_teams)
+
+    starters_needed: Counter[str] = Counter()
+    for slot in league.roster_positions:
+        if slot in ("BN", "FLEX"):
+            continue
+        starters_needed[slot] += 1
+    my_position_counts: Counter[str] = Counter()
+    for pid in my_player_ids:
+        p = by_id.get(pid)
+        if p:
+            my_position_counts[p.position] += 1
+
+    available = [p for p in players if p.player_id not in rostered_ids]
+    ranked = sorted(available, key=lambda p: -vorp(p, replacement))[:15]
+
+    out = []
+    for p in ranked:
+        have = my_position_counts[p.position]
+        need = starters_needed.get(p.position, 0)
+        fills_need = have < need
+        player_vorp = vorp(p, replacement)
+        reason = (
+            f"{p.proj_points:.0f} proj. pts, {player_vorp:.0f} above the last startable "
+            f"{p.position} in this league."
+        )
+        if fills_need:
+            reason += f" You're short at {p.position} ({have}/{need} starters)."
+        if p.position == "DEF":
+            team = DEF_CITY_TO_TEAM.get(p.name.removesuffix(" Defense"), "")
+        else:
+            team = _team_lookup().get(p.player_id, "")
+        out.append(
+            {
+                "player_id": p.player_id,
+                "name": p.name,
+                "position": p.position,
+                "nfl_team": team,
+                "proj_points": p.proj_points,
+                "vorp": round(player_vorp, 1),
+                "fills_need": fills_need,
+                "reason": reason,
+            }
+        )
+    return out
 
 
 @lru_cache(maxsize=1)
