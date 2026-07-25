@@ -10,9 +10,9 @@ one database, not one per league.
 
 - `backend/` - Python. Pulls Sleeper data, builds player projections, and runs
   the draft and season simulations.
-- `frontend/` - React app to view teams, picks, and simulation results. Sign in
-  with your Sleeper username to get in - four tabs per league: Draft, Waivers,
-  Schedule, and Simulations.
+- `frontend/` - React app to view teams, picks, and simulation results. No
+  login: enter your Sleeper username, confirm it's you, and you're in - four
+  tabs per league: Draft, Waivers, Schedule, and Simulations.
 
 ## Backend setup
 
@@ -61,18 +61,28 @@ Environment variables:
 | `FRONTEND_ORIGIN` | Your Vercel URL, e.g. `https://ffb26.vercel.app`. Comma-separate to allow more than one (handy for Vercel preview URLs). |
 
 Local dev origins keep working without this variable: `localhost` and
-`127.0.0.1` on any port are always allowed.
+`127.0.0.1` on any port are always allowed. Any `https://*.vercel.app` origin
+is also allowed by default, so a forgotten or stale `FRONTEND_ORIGIN` doesn't
+turn into a silent CORS rejection (which the browser reports as a bare
+"Failed to fetch", not a helpful error) - set `FRONTEND_ORIGIN` for a custom
+domain instead.
 
-Sign-in needs a few more variables now that the app has a login screen. Full
-list, with `FRONTEND_ORIGIN` repeated for context:
+Confirming a username needs a few more variables. Full list, with
+`FRONTEND_ORIGIN` repeated for context:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `FRONTEND_ORIGIN` | none | Your Vercel URL(s), comma-separated. |
+| `FRONTEND_ORIGIN` | none | Your Vercel URL(s), comma-separated. Only needed for a custom domain - see the `*.vercel.app` fallback above. |
 | `DATABASE_URL` | local SQLite file | Supabase Postgres connection string. `postgres://`/`postgresql://` prefixes are normalized to `postgresql+psycopg://`. |
 | `SESSION_SECRET` | insecure dev default | Signs the session cookie - set a long random value. |
 | `COOKIE_SECURE` | `false` | Set to `true` in production. |
 | `COOKIE_SAMESITE` | `lax` | Set to `none` in production (frontend and backend are on different sites). Requires `COOKIE_SECURE=true`. |
+
+The session cookie itself has no expiry set - it's a browser-session cookie,
+so it goes away when the browser (or its cookies) is cleared, and the next
+visit just asks for the username again. There's no persistent login store
+yet by design; that's a deliberate followup once the app has more than one
+regular user.
 
 See `backend/README.md` for the full picture on these.
 
@@ -268,7 +278,7 @@ with:
 |------|--------------|
 | `ffb/leagues.py` | The two league configs |
 | `ffb/sleeper_client.py` | Read-only Sleeper API client |
-| `ffb/auth.py` | Sleeper-username login: session cookie, `users` table upsert |
+| `ffb/auth.py` | Sleeper-username lookup/confirm, session cookie, `users` table upsert |
 | `ffb/db.py` | SQLAlchemy engine - Supabase Postgres via `DATABASE_URL`, local SQLite otherwise |
 | `ffb/nfldata/scoring.py` | Turn NFL stats into fantasy points for a league |
 | `ffb/nfldata/history.py` | Points curve + week/season variance from past data |

@@ -26,8 +26,28 @@ serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="ffb-session")
 router = APIRouter(prefix="/api/auth")
 
 
-class LoginRequest(BaseModel):
+class UsernameRequest(BaseModel):
     username: str
+
+
+def _lookup_sleeper_user(username: str) -> dict:
+    username = username.strip()
+    if not USERNAME_RE.match(username):
+        raise HTTPException(400, "That doesn't look like a Sleeper username")
+
+    try:
+        with SleeperClient() as client:
+            info = client.get_user(username)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(404, "No Sleeper user with that username")
+        raise HTTPException(502, "Couldn't reach Sleeper right now")
+    except httpx.HTTPError:
+        raise HTTPException(502, "Couldn't reach Sleeper right now")
+
+    if not info or not info.get("user_id"):
+        raise HTTPException(404, "No Sleeper user with that username")
+    return info
 
 
 def _user_payload(user: User) -> dict:
@@ -40,10 +60,13 @@ def _user_payload(user: User) -> dict:
 
 
 def _set_cookie(response: Response, sleeper_user_id: str) -> None:
+    # No max_age/expires: this is a browser-session cookie on purpose - it
+    # disappears when the browser (or its cache/cookies) is cleared, and the
+    # user re-enters their username next time. See MAX_AGE_SECONDS below for
+    # the signature's own staleness limit, which is independent of this.
     response.set_cookie(
         COOKIE_NAME,
         serializer.dumps(sleeper_user_id),
-        max_age=MAX_AGE_SECONDS,
         httponly=True,
         secure=COOKIE_SECURE,
         samesite=COOKIE_SAMESITE,
@@ -61,24 +84,23 @@ def current_user_id(request: Request) -> str | None:
         return None
 
 
-@router.post("/login")
-def login(body: LoginRequest, response: Response) -> dict:
+@router.post("/lookup")
+def lookup(body: UsernameRequest) -> dict:
+    """Preview step: resolve a username against Sleeper without starting a session."""
+    info = _lookup_sleeper_user(body.username)
+    return {
+        "sleeper_user_id": info["user_id"],
+        "sleeper_username": info.get("username") or body.username.strip(),
+        "display_name": info.get("display_name"),
+        "avatar": info.get("avatar"),
+    }
+
+
+@router.post("/confirm")
+def confirm(body: UsernameRequest, response: Response) -> dict:
+    """User has seen the preview and confirmed it's them: start the session."""
     username = body.username.strip()
-    if not USERNAME_RE.match(username):
-        raise HTTPException(400, "That doesn't look like a Sleeper username")
-
-    try:
-        with SleeperClient() as client:
-            info = client.get_user(username)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(404, "No Sleeper user with that username")
-        raise HTTPException(502, "Couldn't reach Sleeper right now")
-    except httpx.HTTPError:
-        raise HTTPException(502, "Couldn't reach Sleeper right now")
-
-    if not info or not info.get("user_id"):
-        raise HTTPException(404, "No Sleeper user with that username")
+    info = _lookup_sleeper_user(username)
 
     with Session() as session:
         user = session.scalar(
