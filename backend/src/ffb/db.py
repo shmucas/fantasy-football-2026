@@ -19,7 +19,14 @@ def _normalize_url(raw: str) -> str:
 
 
 if DATABASE_URL:
-    engine = create_engine(_normalize_url(DATABASE_URL), future=True, pool_pre_ping=True)
+    # Supabase's transaction pooler rejects prepared statements, which psycopg 3
+    # starts issuing after a few executions. prepare_threshold=None turns them off.
+    engine = create_engine(
+        _normalize_url(DATABASE_URL),
+        future=True,
+        pool_pre_ping=True,
+        connect_args={"prepare_threshold": None},
+    )
 else:
     DATA_DIR = Path(__file__).resolve().parents[2] / "data"
     DATA_DIR.mkdir(exist_ok=True)
