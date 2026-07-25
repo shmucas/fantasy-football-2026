@@ -3,12 +3,19 @@ join to Sleeper roster player_ids.
 
 Matching is by normalized name + position (FFC gives no stable id shared with
 Sleeper). Normalization strips case, punctuation, and generational suffixes.
+
+sleeper_id_lookup() runs in the offline pool build and pulls from nflverse.
+sleeper_team_lookup() serves an API request, so it reads the committed snapshot
+in data/nfl/ instead - see ffb.nfldata.schedule for why.
 """
 
+import csv
 import re
+from functools import lru_cache
+from pathlib import Path
 
-import nflreadpy as nfl
-import polars as pl
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+PLAYER_TEAMS_PATH = DATA_DIR / "nfl" / "player_teams.csv"
 
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
 
@@ -21,7 +28,14 @@ def normalize_name(name: str) -> str:
 
 
 def sleeper_id_lookup() -> dict[tuple[str, str], str]:
-    """(normalized_name, position) -> sleeper_id, from nflverse's ff_playerids."""
+    """(normalized_name, position) -> sleeper_id, from nflverse's ff_playerids.
+
+    Build-time only: imports nflreadpy/polars lazily so importing this module
+    from the API doesn't drag them into the serverless bundle.
+    """
+    import nflreadpy as nfl
+    import polars as pl
+
     ids = nfl.load_ff_playerids().filter(pl.col("sleeper_id").is_not_null())
     lookup: dict[tuple[str, str], str] = {}
     for row in ids.iter_rows(named=True):
@@ -30,9 +44,10 @@ def sleeper_id_lookup() -> dict[tuple[str, str], str]:
     return lookup
 
 
+@lru_cache(maxsize=1)
 def sleeper_team_lookup() -> dict[str, str]:
-    """sleeper_id -> current NFL team abbreviation, from nflverse's ff_playerids."""
-    ids = nfl.load_ff_playerids().filter(
-        pl.col("sleeper_id").is_not_null() & pl.col("team").is_not_null()
-    )
-    return {str(row["sleeper_id"]): row["team"] for row in ids.iter_rows(named=True)}
+    """sleeper_id -> current NFL team abbreviation, from the committed snapshot."""
+    if not PLAYER_TEAMS_PATH.exists():
+        return {}
+    with PLAYER_TEAMS_PATH.open() as f:
+        return {row["sleeper_id"]: row["team"] for row in csv.DictReader(f)}

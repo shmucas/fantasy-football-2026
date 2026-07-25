@@ -1,0 +1,15 @@
+# Keep the Python Function bundle small - it has a 500MB limit, and
+# vercel.json's includeFiles pulls in backend/**, so anything heavy that lands
+# under backend/ locally (a virtualenv, caches) would otherwise ship with it.
+#
+# Only affects what gets uploaded/bundled. The frontend is still built on
+# Vercel by vercel.json's buildCommand, which runs its own npm install.
+.venv/
+backend/.venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+backend/data/results/
+backend/data/ffb.db
+.git/

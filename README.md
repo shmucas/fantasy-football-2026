@@ -86,15 +86,35 @@ regular user.
 
 See `backend/README.md` for the full picture on these.
 
-Two things to know:
+Three things to know:
 
 - The player pools in `backend/data/pools/` are committed, so the API has data
   on first boot. Rebuilding a pool means committing the new CSV, not running
   the build on the host.
+- The nflverse snapshots in `backend/data/nfl/` are committed for the same
+  reason, and also to keep `polars`/`nflreadpy` out of the deployed bundle -
+  see "Serving vs building" below. Refresh them with
+  `uv run python -m ffb.nfldata.refresh --season 2026` and commit the result.
 - Simulation results are written to `backend/data/results/`, which is wiped on
   every redeploy. Fine for now - the season simulator returns results directly
   in its API response instead of writing to disk, so this only affects the
   older points-based draft simulator.
+
+### Serving vs building
+
+A Vercel Function has a hard 500MB bundle limit, and the data-science stack
+blows straight through it: `polars` alone unpacks to ~215MB and `scipy` to
+~110MB. So the two paths have deliberately different dependency lists:
+
+| | Deps | Used for |
+| --- | --- | --- |
+| Serving (`requirements.txt`, repo root) | fastapi, httpx, itsdangerous, numpy, pydantic, psycopg, sqlalchemy - ~100MB | What `api/index.py` needs to answer a request |
+| Building (`backend/pyproject.toml`) | the above plus nflreadpy, polars, pyyaml - ~340MB | Pool builds and snapshot refreshes, run locally |
+
+Anything the API imports at request time has to be in **both** files. The
+practical rule: if an endpoint needs nflverse data, snapshot it into
+`backend/data/` with a refresh script and read the snapshot at request time,
+rather than reaching for polars in the serving path.
 
 ### 2. Frontend (Vercel)
 
@@ -284,7 +304,8 @@ with:
 | `ffb/nfldata/history.py` | Points curve + week/season variance from past data |
 | `ffb/nfldata/adp.py` | Fetch ADP from Fantasy Football Calculator |
 | `ffb/nfldata/ids.py` | Match player names to Sleeper ids, current NFL team lookup |
-| `ffb/nfldata/schedule.py` | NFL game schedule by week, from nflverse |
+| `ffb/nfldata/schedule.py` | NFL game schedule by week, from the committed snapshot |
+| `ffb/nfldata/refresh.py` | Rebuild the `data/nfl/` snapshots from nflverse |
 | `ffb/nfldata/build.py` | Build the player pool CSV |
 | `ffb/draft/strategy.py` | Player value + the opponent pick model |
 | `ffb/draft/sim.py` | One mock draft |
