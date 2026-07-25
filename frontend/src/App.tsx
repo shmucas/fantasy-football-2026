@@ -155,6 +155,7 @@ async function postJSON(path: string, body: unknown): Promise<unknown> {
   return parsed;
 }
 
+const DEFAULT_SEASON = "2026";
 const SESSION_KEY = "ffb_sleeper_user";
 
 function loadStoredUser(): SessionUser | null {
@@ -369,6 +370,134 @@ function WinDistributionChart({ scenarios }: { scenarios: SeasonScenario[] }) {
   );
 }
 
+
+// The roadmap is the honest state of the build, so the columns are the three
+// states work is actually in - not a generic backlog board.
+type RoadmapCard = {
+  title: string;
+  detail: string;
+  tags: string[];
+};
+
+const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
+  {
+    column: "Running",
+    note: "Working today",
+    cards: [
+      {
+        title: "Draft simulator",
+        detail:
+          "Simulates the whole snake draft hundreds of times against a noisy opponent model and reports the spread of outcomes for your team.",
+        tags: ["Draft", "Monte Carlo"],
+      },
+      {
+        title: "Pick recommendations",
+        detail:
+          "Ranks the board by value over replacement for your exact roster slots and league size, and explains why each name is there.",
+        tags: ["Draft", "VORP"],
+      },
+      {
+        title: "Waiver wire ranking",
+        detail:
+          "Ranks everyone nobody rostered, and flags the ones who would fill a starting spot you have not covered.",
+        tags: ["Waivers"],
+      },
+      {
+        title: "Season projections",
+        detail:
+          "Turns projected points into an expected win total and a playoff probability for a given draft plan.",
+        tags: ["Season"],
+      },
+    ],
+  },
+  {
+    column: "Building",
+    note: "Being wired up now",
+    cards: [
+      {
+        title: "Discord notifications",
+        detail:
+          "A bot in the league server that posts when a player on your roster gets hurt, when waivers process, and when a lineup needs attention.",
+        tags: ["Discord", "Alerts"],
+      },
+      {
+        title: "Injury watch",
+        detail:
+          "Tracks practice reports and game status for every player you roster, and says who to move before kickoff.",
+        tags: ["Discord", "Injuries"],
+      },
+    ],
+  },
+  {
+    column: "Next up",
+    note: "Queued, not started",
+    cards: [
+      {
+        title: "Waiver claim scraper",
+        detail:
+          "Runs continuously and records every claim in the league: who bid, who they picked up, and what it cost. Reads the room so you know what your league mates are chasing.",
+        tags: ["Discord", "Scraper"],
+      },
+      {
+        title: "Start/sit calls",
+        detail:
+          "Posts a recommended lineup each week with the matchup reasoning, and pings you if you leave points on the bench.",
+        tags: ["Discord", "Lineups"],
+      },
+      {
+        title: "Trade finder",
+        detail:
+          "Scans every other roster for a trade that makes both teams better, and drafts the message to send.",
+        tags: ["Trades"],
+      },
+      {
+        title: "Autopilot",
+        detail:
+          "The end goal: the bot claims waivers and sets lineups on its own, and tells you afterwards what it did and why.",
+        tags: ["Autopilot"],
+      },
+    ],
+  },
+];
+
+function Roadmap() {
+  return (
+    <div className="card full-width">
+      <h2>Roadmap</h2>
+      <p className="state-msg roadmap-intro">
+        Where the automation stands. Everything under Running works right now, everything to the
+        right of it is on the way to a Discord bot that runs the teams.
+      </p>
+      <div className="kanban">
+        {ROADMAP.map((col) => (
+          <section className="kanban-col" key={col.column}>
+            <header className="kanban-head">
+              <h3>{col.column}</h3>
+              <span className="kanban-count">{col.cards.length}</span>
+              <p>{col.note}</p>
+            </header>
+            <ul className="kanban-cards">
+              {col.cards.map((card) => (
+                <li className="kanban-card" key={card.title}>
+                  <h4>{card.title}</h4>
+                  <p>{card.detail}</p>
+                  <div className="kanban-tags">
+                    {card.tags.map((t) => (
+                      <span className="kanban-tag" key={t}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [user, setUser] = useState<SessionUser | null>(() => loadStoredUser());
 
@@ -411,7 +540,7 @@ function DraftApp({
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
   const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims">("draft");
+  const [view, setView] = useState<"draft" | "waivers" | "schedule" | "sims" | "roadmap">("draft");
   const [waivers, setWaivers] = useState<Player[]>([]);
   const [waiversLoading, setWaiversLoading] = useState(false);
   const [waiverRecs, setWaiverRecs] = useState<WaiverRecommendation[]>([]);
@@ -644,16 +773,39 @@ function DraftApp({
 
   return (
     <>
-      <div className="header">
-        <div>
-          <h1>FFB Draft Simulator</h1>
-          <p>Fantasy football draft planning across your leagues</p>
-        </div>
+      <SleeperConnect user={user} onConfirm={onConfirmUser} onClear={onClearUser} />
+
+      <header className="hero">
+        <p className="hero-eyebrow">Fantasy football, 2026 season</p>
+        <h1>
+          Welcome to Lucas' <em>fantasy football</em> showcase
+        </h1>
+        <p className="hero-lede">
+          I got lazy. So this season the machines do the work: they run the draft, read the
+          waiver wire, and tell me who to start. I just click the buttons and take the credit.
+        </p>
+        <dl className="hero-stats">
+          <div>
+            <dt>Leagues connected</dt>
+            <dd>{user ? leagues.length : "\u00b7"}</dd>
+          </div>
+          <div>
+            <dt>Managers to beat</dt>
+            <dd>{active ? active.num_teams - 1 : "\u00b7"}</dd>
+          </div>
+          <div>
+            <dt>Players ranked</dt>
+            <dd>{players.length || "\u00b7"}</dd>
+          </div>
+          <div>
+            <dt>Sims per run</dt>
+            <dd>{nSims.toLocaleString()}</dd>
+          </div>
+        </dl>
         <button className="help-btn" onClick={() => setShowHelp(true)} title="How the math works">
           ?
         </button>
-        <SleeperConnect user={user} onConfirm={onConfirmUser} onClear={onClearUser} />
-      </div>
+      </header>
 
       {showHelp && (
         <div className="modal-backdrop" onClick={() => setShowHelp(false)}>
@@ -715,45 +867,68 @@ function DraftApp({
         </div>
       )}
 
-      <div className="tabs">
-        {leagues.map((l) => (
+      {leagues.length > 0 && (
+        <div className="tabs">
+          {leagues.map((l) => (
+            <button
+              key={l.key}
+              className={`tab ${l.key === activeKey ? "active" : ""}`}
+              onClick={() => setActiveKey(l.key)}
+            >
+              {l.name}
+              <span className="tab-meta">{l.num_teams} teams</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <nav className="subtabs">
+        {(["draft", "waivers", "schedule", "sims"] as const).map((v) => (
           <button
-            key={l.key}
-            className={`tab ${l.key === activeKey ? "active" : ""}`}
-            onClick={() => setActiveKey(l.key)}
+            key={v}
+            className={`subtab ${view === v ? "active" : ""}`}
+            onClick={() => setView(v)}
+            disabled={!active}
+            title={active ? undefined : "Pick a league first"}
           >
-            {l.name}
+            {{ draft: "Draft", waivers: "Waivers", schedule: "Schedule", sims: "Simulations" }[v]}
           </button>
         ))}
-      </div>
+        <button
+          className={`subtab ${view === "roadmap" ? "active" : ""}`}
+          onClick={() => setView("roadmap")}
+        >
+          Roadmap
+        </button>
+      </nav>
 
-      {active && (
-        <div className="subtabs">
-          <button
-            className={`subtab ${view === "draft" ? "active" : ""}`}
-            onClick={() => setView("draft")}
-          >
-            Draft
-          </button>
-          <button
-            className={`subtab ${view === "waivers" ? "active" : ""}`}
-            onClick={() => setView("waivers")}
-          >
-            Waivers
-          </button>
-          <button
-            className={`subtab ${view === "schedule" ? "active" : ""}`}
-            onClick={() => setView("schedule")}
-          >
-            Schedule
-          </button>
-          <button
-            className={`subtab ${view === "sims" ? "active" : ""}`}
-            onClick={() => setView("sims")}
-          >
-            Simulations
-          </button>
+      {view === "roadmap" && <Roadmap />}
+
+      {!user && view !== "roadmap" && (
+        <div className="card full-width empty-state">
+          <h2>Connect Sleeper to start</h2>
+          <p className="state-msg">
+            Enter your Sleeper username in the top right corner. Your leagues, rosters and draft
+            board load straight from Sleeper - there is nothing to sign up for.
+          </p>
         </div>
+      )}
+
+      {user && leagues.length === 0 && view !== "roadmap" && (
+        <div className="card full-width empty-state">
+          <h2>No leagues for this season</h2>
+          <p className="state-msg">
+            Sleeper shows no {DEFAULT_SEASON} NFL leagues for that username. Check the username in
+            the top right corner, or join a league on Sleeper and reload.
+          </p>
+        </div>
+      )}
+
+      {active && active.approx_pool && view !== "roadmap" && (
+        <p className="approx-note">
+          Projections for {active.name} are borrowed from the closest league we have a player pool
+          for, so treat the point totals as approximate.
+        </p>
       )}
 
       {active && view === "draft" && (
@@ -1430,12 +1605,6 @@ function DraftApp({
         </div>
       )}
 
-      {!active && leagues.length === 0 && (
-        <p className="state-msg">
-          Can't reach the API. Start it with <code>uv run uvicorn ffb.api:app --reload</code> in{" "}
-          <code>backend/</code>.
-        </p>
-      )}
     </>
   );
 }
