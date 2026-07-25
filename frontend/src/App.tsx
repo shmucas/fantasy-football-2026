@@ -133,7 +133,29 @@ type SessionUser = {
   avatar: string | null;
 };
 
-function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
+// A plain browser fetch failure (network down, CORS rejection, backend
+// unreachable) throws a bare TypeError with no useful detail - surface
+// something a user can act on instead of the raw "Failed to fetch".
+async function postJSON(path: string, body: unknown): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("Can't reach the server right now - check your connection and try again.");
+  }
+  const parsed = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((parsed as { detail?: string } | null)?.detail ?? "Something went wrong");
+  }
+  return parsed;
+}
+
+function EnterUsername({ onFound }: { onFound: (user: SessionUser) => void }) {
   const [username, setUsername] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,19 +165,10 @@ function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ username: username.trim() }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.detail ?? "Couldn't sign you in");
-      }
-      onSignedIn(await res.json());
+      const found = await postJSON("/auth/lookup", { username: username.trim() });
+      onFound(found as SessionUser);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't sign you in");
+      setError(err instanceof Error ? err.message : "Couldn't find that username");
     } finally {
       setBusy(false);
     }
@@ -166,7 +179,7 @@ function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
       <div className="header">
         <div>
           <h1>FFB Draft Simulator</h1>
-          <p>Sign in with your Sleeper username to get started</p>
+          <p>Enter your Sleeper username to get started</p>
         </div>
       </div>
 
@@ -183,10 +196,70 @@ function Login({ onSignedIn }: { onSignedIn: (user: SessionUser) => void }) {
             />
           </div>
           <button className="run-btn" type="submit" disabled={busy || !username.trim()}>
-            {busy ? "Checking Sleeper..." : "Sign in"}
+            {busy ? "Looking you up on Sleeper..." : "Continue"}
           </button>
           {error && <p className="state-msg error">{error}</p>}
         </form>
+      </div>
+    </>
+  );
+}
+
+function ConfirmUsername({
+  found,
+  onConfirmed,
+  onBack,
+}: {
+  found: SessionUser;
+  onConfirmed: (user: SessionUser) => void;
+  onBack: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      const user = await postJSON("/auth/confirm", { username: found.sleeper_username });
+      onConfirmed(user as SessionUser);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't confirm that username");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="header">
+        <div>
+          <h1>FFB Draft Simulator</h1>
+          <p>Is this you?</p>
+        </div>
+      </div>
+
+      <div className="card login-card">
+        <div className="confirm-user">
+          {found.avatar && (
+            <img
+              className="confirm-avatar"
+              src={`https://sleepercdn.com/avatars/thumbs/${found.avatar}`}
+              alt=""
+            />
+          )}
+          <div>
+            <strong>{found.display_name ?? found.sleeper_username}</strong>
+            <div className="state-msg">@{found.sleeper_username}</div>
+          </div>
+        </div>
+        <button className="run-btn" onClick={confirm} disabled={busy}>
+          {busy ? "Confirming..." : "That's me"}
+        </button>
+        <button className="tab" onClick={onBack} disabled={busy}>
+          Not me, try again
+        </button>
+        {error && <p className="state-msg error">{error}</p>}
       </div>
     </>
   );
@@ -297,6 +370,7 @@ function WinDistributionChart({ scenarios }: { scenarios: SeasonScenario[] }) {
 
 function App() {
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [pendingUser, setPendingUser] = useState<SessionUser | null>(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -312,10 +386,20 @@ function App() {
       () => undefined,
     );
     setUser(null);
+    setPendingUser(null);
   }
 
   if (checking) return <p className="state-msg">Loading...</p>;
-  if (!user) return <Login onSignedIn={setUser} />;
+  if (!user && pendingUser) {
+    return (
+      <ConfirmUsername
+        found={pendingUser}
+        onConfirmed={setUser}
+        onBack={() => setPendingUser(null)}
+      />
+    );
+  }
+  if (!user) return <EnterUsername onFound={setPendingUser} />;
   return <DraftApp user={user} onSignOut={signOut} />;
 }
 
@@ -575,9 +659,16 @@ function DraftApp({ user, onSignOut }: { user: SessionUser; onSignOut: () => voi
           ?
         </button>
         <div className="session-bar">
+          {user.avatar && (
+            <img
+              className="confirm-avatar confirm-avatar-sm"
+              src={`https://sleepercdn.com/avatars/thumbs/${user.avatar}`}
+              alt=""
+            />
+          )}
           <span>{user.display_name ?? user.sleeper_username}</span>
           <button className="tab" onClick={onSignOut}>
-            Sign out
+            Switch user
           </button>
         </div>
       </div>

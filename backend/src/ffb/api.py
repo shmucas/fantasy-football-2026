@@ -44,7 +44,10 @@ FRONTEND_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    # Falls back to matching any Vercel preview/prod URL so a forgotten or
+    # stale FRONTEND_ORIGIN doesn't surface as a bare "Failed to fetch" in the
+    # browser - FRONTEND_ORIGIN above still lets you allow a custom domain.
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+|https://[\w-]+\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
