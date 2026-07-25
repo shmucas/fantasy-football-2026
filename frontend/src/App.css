@@ -149,11 +149,18 @@
   margin: 0 0 10px;
 }
 
+/* #root centers its children, so a nowrap row would size to its content and
+   spill off BOTH edges once a user has more than a couple of leagues - the
+   left-hand ones ending up unreachable. Wrap instead, and never exceed the
+   container, so every league stays on screen without sideways scrolling. */
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 32px;
   justify-content: center;
+  width: 100%;
+  max-width: 100%;
 }
 
 .tab {
@@ -647,6 +654,7 @@
 
 .subtabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 20px;
   justify-content: center;
@@ -753,8 +761,11 @@
   min-width: 0;
 }
 
+/* Name + position/team pills + VORP + "Need" is more than a phone can fit on
+   one line, so let the pills fall to a second row instead of overflowing. */
 .rank-top-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -865,6 +876,19 @@
   flex-shrink: 0;
   color: var(--text-dim);
   font-size: 12px;
+}
+
+/* The 210px date column plus a matchup does not fit a phone, and the date
+   refuses to shrink - so stack it above the matchup instead of overflowing. */
+@media (max-width: 560px) {
+  .schedule-row {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .schedule-date {
+    width: 100%;
+  }
 }
 
 .schedule-matchup {
