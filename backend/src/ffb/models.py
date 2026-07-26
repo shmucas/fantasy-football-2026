@@ -1,4 +1,6 @@
-from sqlalchemy import Float, ForeignKey, Integer, String
+from datetime import datetime
+
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ffb.db import Base
@@ -36,3 +38,25 @@ class Roster(Base):
     sleeper_roster_id: Mapped[int] = mapped_column(Integer)
     owner_display_name: Mapped[str] = mapped_column(String)
     player_id: Mapped[str] = mapped_column(ForeignKey("players.player_id"))
+
+
+class InjuryState(Base):
+    """Last injury status we announced for a rostered player.
+
+    The alerter posts changes, not standing state, so it needs to remember what
+    it said last time. One row per player per season; absence of a row means we
+    have never flagged that player.
+    """
+
+    __tablename__ = "injury_state"
+
+    season: Mapped[str] = mapped_column(String, primary_key=True)
+    sleeper_player_id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String)
+    week: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    # Kept so a player who drops off the report can still be named, without
+    # refetching Sleeper's 5MB player dictionary just to resolve one id.
+    name: Mapped[str] = mapped_column(String, default="")
+    position: Mapped[str] = mapped_column(String, default="")
+    nfl_team: Mapped[str] = mapped_column(String, default="")

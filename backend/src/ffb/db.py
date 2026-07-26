@@ -19,13 +19,17 @@ def _normalize_url(raw: str) -> str:
 
 
 if DATABASE_URL:
-    # Supabase's transaction pooler rejects prepared statements, which psycopg 3
-    # starts issuing after a few executions. prepare_threshold=None turns them off.
+    _url = _normalize_url(DATABASE_URL)
+    # prepare_threshold is a psycopg argument: Supabase's transaction pooler
+    # rejects prepared statements, which psycopg 3 starts issuing after a few
+    # executions. Only pass it to Postgres - pointing DATABASE_URL at SQLite
+    # (handy for a scratch run of the alerter) would otherwise fail to connect.
+    _connect_args = {"prepare_threshold": None} if _url.startswith("postgresql") else {}
     engine = create_engine(
-        _normalize_url(DATABASE_URL),
+        _url,
         future=True,
         pool_pre_ping=True,
-        connect_args={"prepare_threshold": None},
+        connect_args=_connect_args,
     )
 else:
     DATA_DIR = Path(__file__).resolve().parents[2] / "data"

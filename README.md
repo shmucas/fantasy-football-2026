@@ -306,3 +306,31 @@ with:
 | `ffb/draft/analyze.py` | Compare saved point results |
 | `ffb/sim/season.py` | One simulated season -> your wins |
 | `ffb/sim/evaluate.py` | Compare picks by expected wins (CLI and the Simulations tab's API) |
+| `ffb/alerts/injuries.py` | Injury watch: diff the NFL report against your rosters, post changes |
+| `ffb/alerts/diff.py` | What counts as an injury change (pure, unit-tested) |
+| `ffb/alerts/discord.py` | Post to a Discord incoming webhook |
+
+## Injury watch
+
+Posts to Discord when someone on one of your rosters changes injury status.
+
+```bash
+cd backend
+uv run python -m ffb.alerts.injuries --dry-run   # print instead of posting
+uv run python -m ffb.alerts.injuries             # post to DISCORD_WEBHOOK_URL
+```
+
+It stores the last status it announced per player, so it only speaks up when
+something actually moved - safe to put on a schedule. The first run of a season
+seeds that state and stays quiet rather than posting every already-injured
+player; `--force` overrides.
+
+Set `DISCORD_WEBHOOK_URL` to a Discord **incoming webhook** (Server Settings ->
+Integrations -> Webhooks). A webhook is all this needs - it is a plain HTTPS
+POST, so the job runs anywhere on a timer. A bot that answers slash commands
+would need a long-lived process, which the current Vercel hosting cannot
+provide; that is what the Render option in the deploy section is for.
+
+Like the pool build, this job uses `nflreadpy`/`polars` and so runs from a full
+`uv sync` environment, not from the deployed function. See "Serving vs
+building" above.

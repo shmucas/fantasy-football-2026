@@ -413,6 +413,12 @@ const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
           "Turns projected points into an expected win total and a playoff probability for a given draft plan.",
         tags: ["Season"],
       },
+      {
+        title: "Injury watch",
+        detail:
+          "Checks the NFL practice and game-status reports against every player you roster, across all your leagues, and posts the changes to Discord. It only speaks up when something actually moved, so a quiet week stays quiet.",
+        tags: ["Discord", "Injuries"],
+      },
     ],
   },
   {
@@ -422,14 +428,8 @@ const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
       {
         title: "Discord notifications",
         detail:
-          "A bot in the league server that posts when a player on your roster gets hurt, when waivers process, and when a lineup needs attention.",
+          "Injury alerts post to a webhook already. Next: waivers processing and lineups needing attention, on the same plumbing.",
         tags: ["Discord", "Alerts"],
-      },
-      {
-        title: "Injury watch",
-        detail:
-          "Tracks practice reports and game status for every player you roster, and says who to move before kickoff.",
-        tags: ["Discord", "Injuries"],
       },
     ],
   },
