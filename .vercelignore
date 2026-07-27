@@ -1,9 +1,11 @@
-# Keep the Python Function bundle small - it has a 500MB limit, and
-# vercel.json's includeFiles pulls in backend/**, so anything heavy that lands
-# under backend/ locally (a virtualenv, caches) would otherwise ship with it.
+# Keep the Python Function bundle small - it has a hard 500MB limit, and
+# vercel.json's includeFiles pulls in backend/**, so anything that lands under
+# backend/ ships with the function unless it is listed here.
 #
 # Only affects what gets uploaded/bundled. The frontend is still built on
 # Vercel by vercel.json's buildCommand, which runs its own npm install.
+
+# Environments, caches and build output.
 .venv/
 backend/.venv/
 __pycache__/
@@ -13,3 +15,24 @@ frontend/dist/
 backend/data/results/
 backend/data/ffb.db
 .git/
+
+# Code the serving path never imports. Verified by running every endpoint,
+# including the lazily-imported approval ones, against a tree with these
+# removed. Small in bytes, but shipping code that cannot run is noise - and
+# the Sleeper token client in particular has no business on the web tier.
+backend/tests/
+backend/src/ffb/decide/
+backend/src/ffb/alerts/
+backend/src/ffb/sleeper_private.py
+backend/src/ffb/approvals/worker.py
+backend/src/ffb/approvals/notify.py
+
+# Offline build pipeline: these import polars/nflreadpy, which are excluded
+# from requirements.txt on purpose.
+backend/src/ffb/nfldata/build.py
+backend/src/ffb/nfldata/history.py
+backend/src/ffb/nfldata/scoring.py
+backend/src/ffb/nfldata/adp.py
+backend/src/ffb/nfldata/refresh.py
+backend/src/ffb/draft/analyze.py
+backend/src/ffb/verify.py
