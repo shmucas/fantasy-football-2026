@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ffb.db import Base
@@ -60,3 +61,37 @@ class InjuryState(Base):
     name: Mapped[str] = mapped_column(String, default="")
     position: Mapped[str] = mapped_column(String, default="")
     nfl_team: Mapped[str] = mapped_column(String, default="")
+
+
+class PendingAction(Base):
+    """Something the bot wants to do to a Sleeper roster, awaiting a human yes.
+
+    The row is the record of intent *and* the permission slip. `payload` holds
+    the exact GraphQL body that will be sent, decided at proposal time, so what
+    gets approved is what gets executed - the plan cannot be rewritten between
+    the two. `approval_token` is the unguessable single-use secret that appears
+    in the Discord link; possession of it is what authorises the action, since
+    the web app has no login.
+    """
+
+    __tablename__ = "pending_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String)  # set_starters | waiver_claim | add_drop | trade
+    league_id: Mapped[str] = mapped_column(String)
+    league_name: Mapped[str] = mapped_column(String, default="")
+    roster_id: Mapped[int] = mapped_column(Integer)
+    # Human-readable one-liner: what a person is actually agreeing to.
+    summary: Mapped[str] = mapped_column(String)
+    detail: Mapped[str] = mapped_column(String, default="")
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+    status: Mapped[str] = mapped_column(String, default="proposed")
+    approval_token: Mapped[str] = mapped_column(String, unique=True, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Sleeper's transaction_id on success, or the error text on failure.
+    result: Mapped[str] = mapped_column(String, default="")

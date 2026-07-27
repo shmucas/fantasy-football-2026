@@ -537,6 +537,66 @@ def get_schedule(league_key: str, week: int) -> list[dict]:
     return week_schedule(int(league.season), week)
 
 
+# --- approvals --------------------------------------------------------------
+#
+# This tier only records a decision. It never holds SLEEPER_TOKEN and never
+# talks to Sleeper: a separate worker picks up approved actions and sends them.
+# So even a full compromise of the web app cannot move a roster by itself.
+#
+# The action's token is the authorisation - there is no login to check it
+# against - so these endpoints take it from the path and nothing else.
+
+
+class ActionDecision(BaseModel):
+    approve: bool
+
+
+def _action_public(action) -> dict:
+    """What the approval page may see. The GraphQL payload is deliberately
+    omitted: it is an implementation detail and nobody approves by reading it."""
+    return {
+        "kind": action.kind,
+        "league_name": action.league_name,
+        "summary": action.summary,
+        "detail": action.detail,
+        "status": action.status,
+        "created_at": action.created_at.isoformat() if action.created_at else None,
+        "expires_at": action.expires_at.isoformat() if action.expires_at else None,
+        "result": action.result,
+    }
+
+
+@app.get("/api/actions/{token}", response_model=dict)
+def read_action(token: str) -> dict:
+    from ffb.approvals import store
+
+    action = store.by_token(token)
+    if action is None:
+        raise HTTPException(404, "No such action, or the link has already been used")
+    return _action_public(action)
+
+
+@app.post("/api/actions/{token}/decide", response_model=dict)
+def decide_action(token: str, body: ActionDecision) -> dict:
+    from ffb.approvals import store
+
+    changed, message = store.decide(token, approve=body.approve)
+    if not changed:
+        raise HTTPException(409, message)
+    action = store.by_token(token)
+    return {"message": message, **_action_public(action)}
+
+
+@app.get("/api/actions", response_model=list[dict])
+def list_pending_actions() -> list[dict]:
+    """Everything still waiting on a decision, for an in-app queue."""
+    from ffb.approvals import store
+
+    return [
+        {**_action_public(a), "token": a.approval_token} for a in store.pending()
+    ]
+
+
 # Sleeper roster slots the simulator has no model for. The flex family all
 # collapses onto our FLEX (RB/WR/TE); SUPER_FLEX really allows a QB too, so a
 # superflex league is modelled as a plain flex and flagged. Bench-like and IDP

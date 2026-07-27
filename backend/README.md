@@ -43,6 +43,49 @@ deployed API bundle, so it runs from a machine with the full `uv sync`
 environment - a cron box, a GitHub Actions schedule, or a Render cron job - not
 from the Vercel function.
 
+## Acting on Sleeper (approval-gated)
+
+The documented Sleeper API is read-only. `ffb/sleeper_private.py` talks to the
+private GraphQL endpoint the Sleeper web app uses, which can set lineups,
+submit waiver claims, add/drop and propose trades.
+
+**Nothing is sent without a human approval.** The flow is:
+
+1. Something proposes an action. It is stored with the exact GraphQL body that
+   would be sent, plus a single-use unguessable token.
+2. The proposal is posted to Discord with a link back to the app.
+3. You approve or reject - in Discord (via the link) or in the app.
+4. A worker sends only what was approved, and reports the outcome.
+
+```
+uv run python -m ffb.approvals.worker --list      # what is waiting
+uv run python -m ffb.approvals.worker --dry-run   # what would be sent
+uv run python -m ffb.approvals.worker             # send approved actions
+```
+
+### The two tiers, and why
+
+| | Holds `SLEEPER_TOKEN` | Can record an approval | Can send to Sleeper |
+| --- | --- | --- | --- |
+| Web API (Vercel) | no | yes | **no** |
+| Worker (your machine) | yes | no | yes |
+
+The token is a full session credential for the whole Sleeper account, not a
+scoped key. Keeping it off the web tier means compromising the site cannot move
+a roster - the worst it can do is record an approval that a worker you control
+later acts on.
+
+| Variable | Notes |
+| --- | --- |
+| `SLEEPER_TOKEN` | The private-API session JWT. Worker only. Capture from sleeper.com → DevTools → Network → any `graphql` request → `authorization` header. It expires; the worker fails loudly rather than half-acting. |
+| `FFB_APP_URL` | Public URL of the frontend, used to build approval links. |
+
+Approvals expire after 12 hours: consent to change a lineup is consent to change
+it now, not next week.
+
+**Treat the approval link like a password.** The app has no login, so holding
+the link is what authorises the action. Post it to a private channel.
+
 ## Tests
 
 ```

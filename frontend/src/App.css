@@ -1156,3 +1156,10 @@
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+
+.approval-summary {
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0 0 10px;
+  color: var(--text);
+}

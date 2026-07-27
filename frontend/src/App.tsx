@@ -560,8 +560,110 @@ function Roadmap() {
   );
 }
 
+type PendingAction = {
+  kind: string;
+  league_name: string;
+  summary: string;
+  detail: string;
+  status: string;
+  expires_at: string | null;
+  result: string;
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  set_starters: "Lineup change",
+  waiver_claim: "Waiver claim",
+  add_drop: "Add / drop",
+  trade: "Trade offer",
+  draft_pick: "Draft pick",
+};
+
+// Reached from the link in the Discord message. Holding the link is what
+// authorises the decision, so this screen is deliberately standalone: it shows
+// exactly what would happen and does nothing until a button is pressed.
+function ApprovalScreen({ token, onDone }: { token: string; onDone: () => void }) {
+  const [action, setAction] = useState<PendingAction | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<string | null>(null);
+
+  useEffect(() => {
+    getJSON(`/actions/${encodeURIComponent(token)}`)
+      .then((a) => setAction(a as PendingAction))
+      .catch((e) => setError(e instanceof Error ? e.message : "Couldn't load this request"));
+  }, [token]);
+
+  async function decide(approve: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await postJSON(`/actions/${encodeURIComponent(token)}/decide`, {
+        approve,
+      });
+      setAction(updated as PendingAction);
+      setOutcome(approve ? "Approved" : "Rejected");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't record that");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <header className="hero">
+        <p className="hero-eyebrow">Approval needed</p>
+        <h1>
+          Is this <em>okay</em>?
+        </h1>
+      </header>
+
+      <div className="card login-card">
+        {!action && !error && <p className="state-msg">Loading...</p>}
+        {error && <p className="state-msg error">{error}</p>}
+
+        {action && (
+          <>
+            <h2>
+              {ACTION_LABELS[action.kind] ?? action.kind}
+              {action.league_name ? ` - ${action.league_name}` : ""}
+            </h2>
+            <p className="approval-summary">{action.summary}</p>
+            {action.detail && <p className="state-msg">{action.detail}</p>}
+
+            {outcome || action.status !== "proposed" ? (
+              <p className="state-msg">
+                {outcome ?? `Already ${action.status}`}
+                {action.result ? ` - ${action.result}` : ""}
+                {action.status === "approved" && " - it will be sent on the next run."}
+              </p>
+            ) : (
+              <>
+                <button className="run-btn" onClick={() => decide(true)} disabled={busy}>
+                  {busy ? "Saving..." : "Approve"}
+                </button>
+                <button className="tab" onClick={() => decide(false)} disabled={busy}>
+                  Reject
+                </button>
+                <p className="state-msg">Nothing is sent to Sleeper until you approve.</p>
+              </>
+            )}
+          </>
+        )}
+
+        <button className="tab" onClick={onDone}>
+          Back to the app
+        </button>
+      </div>
+    </>
+  );
+}
+
 function App() {
   const [user, setUser] = useState<SessionUser | null>(() => loadStoredUser());
+  const [approveToken, setApproveToken] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("approve"),
+  );
 
   function confirmUser(next: SessionUser) {
     storeUser(next);
@@ -571,6 +673,18 @@ function App() {
   function clearUser() {
     storeUser(null);
     setUser(null);
+  }
+
+  if (approveToken) {
+    return (
+      <ApprovalScreen
+        token={approveToken}
+        onDone={() => {
+          window.history.replaceState({}, "", window.location.pathname);
+          setApproveToken(null);
+        }}
+      />
+    );
   }
 
   return <DraftApp user={user} onConfirmUser={confirmUser} onClearUser={clearUser} />;
