@@ -462,9 +462,9 @@ const ROADMAP: { column: string; note: string; cards: RoadmapCard[] }[] = [
         tags: ["Autopilot"],
       },
       {
-        title: "Reverse engineer the Sleeper API",
+        title: "Sleeper's private API",
         detail:
-          "Sleeper's documented read-only endpoints stop short of the good stuff. Map what the app itself calls so projections, matchups and transactions can be pulled properly. Hushhhh.",
+          "The documented API is read-only, so the bot can advise but never act. Sleeper's own app talks to a GraphQL endpoint that can set lineups and submit waiver claims - that is the missing arm for Autopilot. Read-only first, writes only behind a confirmation. See plan.md. Hushhhh.",
         tags: ["Sleeper", "Research"],
       },
     ],
