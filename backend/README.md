@@ -43,6 +43,30 @@ deployed API bundle, so it runs from a machine with the full `uv sync`
 environment - a cron box, a GitHub Actions schedule, or a Render cron job - not
 from the Vercel function.
 
+## Deciding what to do
+
+The maths stays where it is - VORP, replacement level and the lineup optimiser
+are reused unchanged, so the bot proposes exactly what the Waivers and Draft
+tabs already recommend. This layer only turns those numbers into one concrete
+action and files it for approval.
+
+```
+uv run python -m ffb.decide.run lineup  --dry-run   # decide, print, propose nothing
+uv run python -m ffb.decide.run lineup              # propose for approval
+uv run python -m ffb.decide.run waivers --dry-run
+```
+
+It reads through the documented REST API only. Nothing here can send anything.
+
+Two ways it deliberately declines to act:
+
+- **It never vacates a slot.** Our player pool has no kickers, so the optimiser
+  cannot see one. Without a guard it would propose benching a real kicker in
+  favour of nobody. Any slot it cannot fill keeps whoever is in it.
+- **It never proposes a change that loses points.** If the maths says a swap is
+  worse - usually a sign it cannot see a player it would be replacing - the
+  lineup is left alone.
+
 ## Acting on Sleeper (approval-gated)
 
 The documented Sleeper API is read-only. `ffb/sleeper_private.py` talks to the
