@@ -282,27 +282,28 @@ def render_text(report: dict, limit: int) -> str:
     return "\n".join(lines)
 
 
-def run(league: str, user_id: str, limit: int, as_json: bool, no_shopping: bool) -> int:
+def report_for(league: str, user_id: str, limit: int, no_shopping: bool = False) -> dict:
+    """The full report as data, for callers that are not the command line.
+
+    run() renders this; the daily digest consumes it directly. Keeping one
+    builder means the digest can never disagree with the CLI about whether a
+    league had no trades or could not be evaluated.
+    """
     league_id = resolve_league_id(league)
     data = assemble(league_id, user_id)
 
     shopping, note = ({}, "disabled") if no_shopping else load_shopping(league_id)
-
     evaluated = len(data.feasible_others)
 
-    # A pre-draft league has no players anywhere. That reads exactly like the
-    # "everything is infeasible" failure unless it is named, so name it.
     if not any(t.players or t.unknown_count for t in [data.me, *data.others]):
         report = build_report(
             data.league.name, league_id, data.me, len(data.others), 0,
             [], limit, note, 0, data.approx_pool,
         )
         report["status"] = STATUS_ROSTERS_EMPTY
-        # No feasibility check ran, so nothing was skipped for being infeasible.
         report["rosters_skipped_infeasible"] = 0
         report["message"] = explain(STATUS_ROSTERS_EMPTY, 0, len(data.others), 0)
-        print(json.dumps(report, indent=2) if as_json else render_text(report, limit))
-        return 0
+        return report
 
     try:
         ideas = find_trades(
@@ -314,18 +315,15 @@ def run(league: str, user_id: str, limit: int, as_json: bool, no_shopping: bool)
             shopping=shopping,
         )
     except ValueError as exc:
-        # find_trades refuses to run when our own roster cannot be filed. That
-        # is a resolution failure, not "no trades exist", so say so loudly.
         report = build_report(
             data.league.name, league_id, data.me, len(data.others), evaluated,
             [], limit, note, 0, data.approx_pool,
         )
         report["status"] = STATUS_MY_ROSTER_INFEASIBLE
         report["message"] = f"{explain(STATUS_MY_ROSTER_INFEASIBLE, 0, 0, 0)} {exc}"
-        print(json.dumps(report, indent=2) if as_json else render_text(report, limit))
-        return 2
+        return report
 
-    report = build_report(
+    return build_report(
         data.league.name,
         league_id,
         data.me,
@@ -337,8 +335,17 @@ def run(league: str, user_id: str, limit: int, as_json: bool, no_shopping: bool)
         sum(t.shopping_hits for t in ideas),
         data.approx_pool,
     )
+
+
+def exit_code_for(report: dict) -> int:
+    """0 when the answer is real, 2 when we could not look."""
+    return 0 if report["status"] in (STATUS_OK, STATUS_NO_TRADES, STATUS_ROSTERS_EMPTY) else 2
+
+
+def run(league: str, user_id: str, limit: int, as_json: bool, no_shopping: bool) -> int:
+    report = report_for(league, user_id, limit, no_shopping)
     print(json.dumps(report, indent=2) if as_json else render_text(report, limit))
-    return 0 if report["status"] in (STATUS_OK, STATUS_NO_TRADES) else 2
+    return exit_code_for(report)
 
 
 def main() -> None:

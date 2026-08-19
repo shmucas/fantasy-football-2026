@@ -366,6 +366,7 @@ def run(league_key: str, sleeper_user_id: str, week: int | None, skip_injuries: 
     if mine is None:
         return {
             "status": "cannot_evaluate",
+            "league": league.name,
             "reason": f"No roster owned by {sleeper_user_id} in league {league_key}",
         }
 
@@ -398,6 +399,7 @@ def run(league_key: str, sleeper_user_id: str, week: int | None, skip_injuries: 
         return {
             "status": "cannot_evaluate",
             "reason": str(exc),
+            "league": league.name,
             "roster_size": len(ids),
             "valued_players": len(known),
         }
