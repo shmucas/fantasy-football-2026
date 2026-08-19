@@ -334,3 +334,34 @@ provide; that is what the Render option in the deploy section is for.
 Like the pool build, this job uses `nflreadpy`/`polars` and so runs from a full
 `uv sync` environment, not from the deployed function. See "Serving vs
 building" above.
+
+### On a schedule (GitHub Actions)
+
+`.github/workflows/injury-watch.yml` runs the watcher for you. It fires on the
+days that matter in-season (Wednesday to Friday practice reports, and inactives
+before the Thursday, Sunday and Monday games) and can also be started by hand
+from the Actions tab, with optional `force` and `dry_run` toggles.
+
+Two repository secrets are required (Settings -> Secrets and variables ->
+Actions):
+
+- `DISCORD_WEBHOOK_URL` - the incoming webhook described above.
+- `DATABASE_URL` - the same hosted Postgres the app uses.
+
+An optional `FFB_SEASON` repository variable overrides the season the job asks
+for. Useful while nflverse has no injury data for the coming season yet.
+
+`DATABASE_URL` is the state persistence. The watcher keeps what it last
+announced in the `injury_state` table, and a GitHub runner has no disk that
+survives the run, so without this the job would write to a throwaway SQLite
+file, look like a first run every time and never post. The workflow checks both
+secrets are present before doing any work and fails if either is missing.
+
+Any other scheduled job that needs to remember something between runs should do
+the same: point `DATABASE_URL` at that Postgres and keep its state in a table,
+wherever the job happens to run from.
+
+Two GitHub caveats worth knowing: scheduled workflows only run from the default
+branch, and GitHub disables the schedule on a repository with 60 days of no
+activity. Cron times are UTC with no daylight saving, which is why the schedule
+uses wide windows rather than exact kickoff times.

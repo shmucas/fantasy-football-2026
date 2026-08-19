@@ -1,0 +1,83 @@
+# Injury watch: diff the NFL injury report against what we last announced and
+# post the changes to Discord.
+#
+# This cannot be a Vercel Cron. The job needs nflreadpy and polars, which are
+# deliberately kept out of the serverless bundle (see CLAUDE.md), so it runs
+# here instead.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   DISCORD_WEBHOOK_URL - the Discord incoming webhook to post into
+#   DATABASE_URL        - the same hosted Postgres the app uses. This is where
+#                         the "what did we say last time" state lives. Without
+#                         it the job would fall back to a throwaway SQLite file
+#                         on the runner and never post anything, so the job
+#                         fails fast instead.
+
+name: Injury watch
+
+on:
+  schedule:
+    # Times are UTC and GitHub does not do daylight saving, so these are spans
+    # wide enough to cover both EDT and EST. Re-running is cheap: the diff is
+    # silent when nothing changed, so an extra run costs a minute, not a ping.
+    #
+    # Wed/Thu/Fri evening - practice reports and Friday's final game status.
+    - cron: "0 22 * * 3,4,5"
+    # Thursday and Monday late evening - TNF/MNF inactives.
+    - cron: "45 22 * * 1,4"
+    - cron: "45 23 * * 1,4"
+    # Sunday through the day - covers inactives 90 minutes before the 1pm and
+    # 4pm ET windows under either offset, plus the Sunday night game.
+    - cron: "0 14-23 * * 0"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Post even on the first run for a season"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Print the message instead of posting to Discord"
+        type: boolean
+        default: false
+
+# Two runs writing injury state at once would fight over the same rows.
+concurrency:
+  group: injury-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          test -n "$DATABASE_URL" || { echo "DATABASE_URL secret is not set"; exit 1; }
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install
+        working-directory: backend
+        run: uv sync
+
+      - name: Run injury watch
+        working-directory: backend
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Set an FFB_SEASON repository variable to override, for example to
+          # 2025 while nflverse has no injury data for the coming season.
+          FFB_SEASON: ${{ vars.FFB_SEASON || '2026' }}
+        run: |
+          uv run python -m ffb.alerts.injuries \
+            ${{ inputs.force && '--force' || '' }} \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
