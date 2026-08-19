@@ -1206,8 +1206,8 @@ function DraftApp({
                 {draftLog.length === 0
                   ? "Nothing logged yet. Picks save to this browser as you log them."
                   : restoredCount > 0 && restoredCount === draftLog.length
-                    ? `Restored ${draftLog.length} logged picks for this draft.`
-                    : `${draftLog.length} picks logged and saved for this draft.`}
+                    ? `Restored ${draftLog.length} logged ${draftLog.length === 1 ? "pick" : "picks"} for this draft.`
+                    : `${draftLog.length} ${draftLog.length === 1 ? "pick" : "picks"} logged and saved for this draft.`}
                 {draftMeta?.draft_id ? ` Draft ${draftMeta.draft_id}.` : ""}
               </span>
               <label className="draft-rounds-field">
