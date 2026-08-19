@@ -20,6 +20,8 @@ from ffb.draft.run_sims import DATA_DIR, RESULTS_DIR, load_players, run_scenario
 from ffb.draft.sim import simulate_draft
 from ffb.draft.strategy import replacement_levels, vorp
 from ffb.leagues import LEAGUES, LeagueConfig
+from ffb.lineup import advise, season_byes
+from ffb.lineup import as_dict as lineup_as_dict
 from ffb.nfldata.ids import sleeper_team_lookup
 from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sim.evaluate import run_scenarios, summarize
@@ -726,3 +728,54 @@ def _summarize(scores: list[float]) -> dict[str, float]:
         "p50": sorted_scores[int(n * 0.50)],
         "p90": sorted_scores[int(n * 0.90)],
     }
+
+
+@app.get("/api/leagues/{league_key}/lineup", response_model=dict)
+def recommend_lineup(league_key: str, sleeper_user_id: str, week: int | None = None) -> dict:
+    """Start/sit: the best legal lineup you can field, diffed against the one set.
+
+    Read-only. Bye weeks come from the committed schedule snapshot, so they cost
+    nothing here. Injury status is not consulted: the only source is Sleeper's
+    ~5MB player dump, which does not belong in a request, so the CLI
+    (`python -m ffb.lineup`) fetches it and this endpoint says it did not.
+    """
+    league = _get_league(league_key)
+    pool_path = _league_pool(league)
+
+    with SleeperClient() as client:
+        rosters = client.get_rosters(league.league_id)
+
+    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_user_id), None)
+    if my_roster is None:
+        raise HTTPException(404, "Your roster wasn't found in this league")
+
+    players = load_players(pool_path)
+    by_id = {p.player_id: p for p in players}
+    known = [by_id[pid] for pid in (my_roster.get("players") or []) if pid in by_id]
+    valued_positions = {
+        by_id[pid].position
+        for r in rosters
+        for pid in (r.get("players") or [])
+        if pid in by_id
+    }
+
+    try:
+        advice = advise(
+            known,
+            [str(s) for s in (my_roster.get("starters") or [])],
+            league.roster_positions,
+            valued_positions,
+            week=week,
+            nfl_team=_team_lookup(),
+            byes=season_byes(league.season),
+        )
+    except ValueError as exc:
+        # An empty diff would read as "your lineup is fine". It isn't: we could
+        # not model the roster at all, so say that instead.
+        return {
+            "status": "cannot_evaluate",
+            "reason": str(exc),
+            "roster_id": my_roster.get("roster_id"),
+        }
+
+    return {**lineup_as_dict(advice), "roster_id": my_roster["roster_id"], "league": league.name}
