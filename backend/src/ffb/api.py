@@ -25,6 +25,7 @@ from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sim.evaluate import run_scenarios, summarize
 from ffb.sim.season import REG_SEASON_WEEKS
 from ffb.sleeper_client import SleeperClient
+from ffb.trades import TeamRoster, find_trades, rank_for_me
 
 
 @asynccontextmanager
@@ -493,6 +494,86 @@ def recommend_waivers(league_key: str, sleeper_user_id: str) -> list[dict]:
             }
         )
     return out
+
+
+@app.get("/api/leagues/{league_key}/trades", response_model=dict)
+def recommend_trades(league_key: str, sleeper_user_id: str, limit: int = 10) -> dict:
+    """Trade packages that improve your roster and the other manager's at once.
+
+    Read-only: this finds and ranks trades, it never proposes one. Both
+    orderings the finder produces are returned, since "best for the league" and
+    "best for me" are different questions.
+    """
+    league = _get_league(league_key)
+    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    if pool_path is None:
+        return {"by_joint_surplus": [], "by_my_surplus": []}
+
+    with SleeperClient() as client:
+        rosters = client.get_rosters(league.league_id)
+        users = client.get_users(league.league_id)
+
+    my_roster = next((r for r in rosters if r["owner_id"] == sleeper_user_id), None)
+    if my_roster is None:
+        raise HTTPException(404, "Your roster wasn't found in this league")
+
+    players = load_players(pool_path)
+    by_id = {p.player_id: p for p in players}
+    replacement = replacement_levels(players, league.roster_positions, league.num_teams)
+    name_by_owner = {u["user_id"]: u.get("display_name") or "Unknown" for u in users}
+
+    def to_team(raw: dict) -> TeamRoster:
+        ids = raw.get("players") or []
+        known = [by_id[pid] for pid in ids if pid in by_id]
+        return TeamRoster(
+            roster_id=raw["roster_id"],
+            owner_name=name_by_owner.get(raw.get("owner_id"), "Unknown"),
+            players=known,
+            unknown_count=len(ids) - len(known),
+        )
+
+    me = to_team(my_roster)
+    others = [to_team(r) for r in rosters if r["roster_id"] != my_roster["roster_id"]]
+
+    # Which positions the pool actually resolves on these rosters. K has no pool
+    # rows and DEF ids never match Sleeper's team codes, so those slots cannot be
+    # checked for fillability.
+    valued_positions = {p.position for t in [me, *others] for p in t.players}
+    ideas = find_trades(me, others, league.roster_positions, replacement, valued_positions)
+    return {
+        "by_joint_surplus": [_trade_out(t) for t in ideas[:limit]],
+        "by_my_surplus": [_trade_out(t) for t in rank_for_me(ideas)[:limit]],
+    }
+
+
+def _trade_out(idea) -> dict:
+    def side(players):
+        return [
+            {
+                "player_id": p.player_id,
+                "name": p.name,
+                "position": p.position,
+                "proj_points": p.proj_points,
+            }
+            for p in players
+        ]
+
+    return {
+        "roster_id": idea.roster_id,
+        "owner_name": idea.owner_name,
+        "send": side(idea.send),
+        "receive": side(idea.receive),
+        "my_surplus": round(idea.my_surplus, 1),
+        "their_surplus": round(idea.their_surplus, 1),
+        "joint_surplus": round(idea.joint_surplus, 1),
+        "reason": " ".join(
+            [
+                f"You gain {idea.my_surplus:.0f} projected points, they gain "
+                f"{idea.their_surplus:.0f}.",
+                *idea.notes,
+            ]
+        ),
+    }
 
 
 @lru_cache(maxsize=1)
