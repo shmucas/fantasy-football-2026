@@ -1065,20 +1065,31 @@
 /* ------------------------------------------------------------------ */
 .draft-room {
   color-scheme: dark;
-  --dr-bg: #16130e;
-  --dr-panel: #1f1b14;
-  --dr-panel-2: #262117;
-  --dr-line: #383021;
-  --dr-text: #f4efe2;
-  --dr-dim: #9a927f;
+  /* The ground is the site's own ink (--text, #1f1c17) opened up into a
+     scale, and the type is the site's own paper (--bg, #f7f5ef). So the
+     board is the cream page inverted, not a second palette. */
+  --dr-bg: #1c1915;
+  --dr-panel: #25211b;
+  --dr-panel-2: #2d2820;
+  --dr-line: #3d372e;
+  --dr-sunk: #171410;
+  --dr-text: #f7f5ef;
+  --dr-dim: #a9a293;
   --dr-accent: #e0855c;
   --dr-live: #f2c14e;
-  --dr-next: #7fb6d9;
+  --dr-next: #8ab8cf;
+  --dr-danger: #ef9682;
   --dr-cell: 100px;
   background: var(--dr-bg);
-  border-color: #2b2419;
+  border-color: #4a4238;
   color: var(--dr-text);
   padding: 0;
+  /* A cream mat between the page and the plate, using the site's own
+     --panel-2, so the edge steps cream -> cream-grey -> ink instead of
+     slamming straight from paper to black. */
+  box-shadow:
+    0 0 0 6px var(--panel-2),
+    0 18px 34px -20px rgba(31, 28, 23, 0.45);
 }
 
 /* The scoreboard strip. Sticky so the clock and Undo stay reachable no
@@ -1224,8 +1235,8 @@
 }
 
 .draft-undo:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: #f0947f;
+  border-color: var(--dr-danger);
+  color: var(--dr-danger);
 }
 
 .draft-undo:disabled {
@@ -1241,7 +1252,7 @@
   align-items: center;
   gap: 10px 16px;
   padding: 9px 22px;
-  background: #1a1610;
+  background: var(--dr-sunk);
   border-bottom: 1px solid var(--dr-line);
   font-size: 11.5px;
   color: var(--dr-dim);
@@ -1286,8 +1297,8 @@
 }
 
 .draft-clear:hover:not(:disabled) {
-  color: #f0947f;
-  border-color: var(--danger);
+  color: var(--dr-danger);
+  border-color: var(--dr-danger);
 }
 
 .draft-clear:disabled {
@@ -1413,7 +1424,7 @@
   padding: 7px 14px;
   border-radius: 999px;
   background: var(--dr-accent);
-  color: #16130e;
+  color: var(--dr-bg);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1538,7 +1549,7 @@
 }
 
 .draft-grid td.is-open {
-  background: #1b1710;
+  background: var(--dr-sunk);
   border: 1px solid transparent;
   color: var(--dr-dim);
   text-align: right;
@@ -1557,13 +1568,13 @@
 /* Your own column is the one you scan for. Tint the whole run of cells
    rather than only the filled ones, so the column reads as a stripe. */
 .draft-grid td.is-mine-col {
-  background: #2a1f17;
-  border-color: #4a3323;
+  background: #32271f;
+  border-color: #55402f;
 }
 
 .draft-grid td.is-now {
   border: 1px solid var(--dr-live);
-  background: #2c2411;
+  background: #332a17;
   animation: draft-now-pulse 1.8s ease-in-out infinite;
 }
 
