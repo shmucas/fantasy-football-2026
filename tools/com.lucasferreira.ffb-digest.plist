@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lucasferreira.ffb-digest</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/lucasferreira/.local/libexec/ffb-digest.sh</string>
+    </array>
+
+    <!-- Twice a day. Morning catches overnight injury news and waiver results
+         before the day gets away; evening catches practice reports and lets a
+         trade sit in someone's inbox overnight. Odd minutes on purpose, so this
+         is not competing with every other job that fires on the hour. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>8</integer>
+            <key>Minute</key>
+            <integer>7</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>18</integer>
+            <key>Minute</key>
+            <integer>23</integer>
+        </dict>
+    </array>
+
+    <!-- The laptop will be asleep or shut some of the time. Without this a
+         missed window is simply skipped, and a digest that silently does not
+         run is worse than one that runs late. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/lucasferreira/Library/Logs/ffb/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/lucasferreira/Library/Logs/ffb/launchd.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

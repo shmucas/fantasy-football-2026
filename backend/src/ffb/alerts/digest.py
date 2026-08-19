@@ -137,12 +137,18 @@ def main() -> int:
 
     message, failed = build(league_ids(), args.user, args.limit, args.week)
 
-    if args.dry_run or not discord.webhook_url():
-        if not args.dry_run:
-            print("No DISCORD_WEBHOOK_URL set, printing instead of posting.\n")
-        print(message)
+    # Always print. Under launchd this is what lands in the log, and a job whose
+    # log says only "finished" is useless when you are trying to work out what
+    # it told you three days ago.
+    print(message)
+
+    if args.dry_run:
+        pass
+    elif not discord.webhook_url():
+        print("\n(not posted: no DISCORD_WEBHOOK_URL set)")
     else:
         discord.post(message)
+        print("\n(posted to Discord)")
 
     return 1 if failed else 0
 
