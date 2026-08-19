@@ -72,6 +72,20 @@ class TradeIdea:
         return self.my_surplus + self.their_surplus
 
 
+def active_player_ids(raw_roster: dict) -> list[str]:
+    """The players on a roster that occupy a normal roster spot.
+
+    Sleeper's `players` includes anyone stashed on IR or the taxi squad, but a
+    league can allow those beyond its `roster_positions`. One IR stash was
+    therefore enough to push a roster over its own slot count and get it
+    dropped as unfileable, which silently shrank the trade search: 8 of 13
+    rosters in one real league, purely on this.
+    """
+    ids = raw_roster.get("players") or []
+    parked = set(raw_roster.get("reserve") or []) | set(raw_roster.get("taxi") or [])
+    return [pid for pid in ids if pid not in parked]
+
+
 def modelled_slots(roster_positions: list[str], valued_positions: set[str]) -> list[str]:
     """Starting slots we can actually reason about.
 

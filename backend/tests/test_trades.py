@@ -2,6 +2,7 @@
 
 from ffb.draft.strategy import Player
 from ffb.trades import (
+    active_player_ids,
     TeamRoster,
     find_trades,
     is_feasible,
@@ -244,3 +245,22 @@ def test_a_partner_we_cannot_file_is_skipped_not_fatal():
     ideas = find_trades(me, [broken, good], SLOTS, REPLACEMENT, VALUED_POSITIONS)
     assert ideas
     assert all(i.roster_id == 3 for i in ideas)
+
+
+def test_ir_and_taxi_players_do_not_count_against_roster_capacity():
+    """A league can allow IR beyond its roster_positions, and Sleeper lists those
+    players in `players` anyway. Counting them made one stash enough to mark a
+    roster unfileable, which quietly removed that manager from the search."""
+    raw = {
+        "roster_id": 3,
+        "players": ["a", "b", "c", "hurt", "rook"],
+        "reserve": ["hurt"],
+        "taxi": ["rook"],
+    }
+    assert active_player_ids(raw) == ["a", "b", "c"]
+
+
+def test_active_player_ids_handles_missing_and_null_keys():
+    assert active_player_ids({"players": ["a"]}) == ["a"]
+    assert active_player_ids({"players": None, "reserve": None}) == []
+    assert active_player_ids({}) == []

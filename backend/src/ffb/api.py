@@ -27,7 +27,7 @@ from ffb.nfldata.schedule import available_weeks, week_schedule
 from ffb.sim.evaluate import run_scenarios, summarize
 from ffb.sim.season import REG_SEASON_WEEKS
 from ffb.sleeper_client import SleeperClient
-from ffb.trades import TeamRoster, find_trades, rank_for_me
+from ffb.trades import TeamRoster, active_player_ids, find_trades, rank_for_me
 
 
 @asynccontextmanager
@@ -525,7 +525,7 @@ def recommend_trades(league_key: str, sleeper_user_id: str, limit: int = 10) -> 
     name_by_owner = {u["user_id"]: u.get("display_name") or "Unknown" for u in users}
 
     def to_team(raw: dict) -> TeamRoster:
-        ids = raw.get("players") or []
+        ids = active_player_ids(raw)
         known = [by_id[pid] for pid in ids if pid in by_id]
         return TeamRoster(
             roster_id=raw["roster_id"],
