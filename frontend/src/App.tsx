@@ -46,6 +46,18 @@ const DEF_CITY_TO_TEAM: Record<string, string> = {
   Washington: "WAS",
 };
 
+// Board cells are ~90px wide, so a full name never fits. "Ja'Marr Chase"
+// becomes "J. Chase"; a defense collapses to its team code.
+function shortName(name: string): string {
+  if (name.endsWith(" Defense")) {
+    const city = name.replace(/ Defense$/, "");
+    return DEF_CITY_TO_TEAM[city] ?? city;
+  }
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return name;
+  return `${parts[0][0]}. ${parts.slice(1).join(" ")}`;
+}
+
 function avatarUrl(playerId: string, position?: string, name?: string): string {
   if (position === "DEF") {
     const city = name?.replace(/ Defense$/, "") ?? "";
@@ -57,6 +69,7 @@ function avatarUrl(playerId: string, position?: string, name?: string): string {
 type LeagueConfig = {
   key: string;
   name: string;
+  league_id: string;
   season: string;
   num_teams: number;
   roster_positions: string[];
@@ -134,6 +147,57 @@ type SessionUser = {
   display_name: string | null;
   avatar: string | null;
 };
+
+// What the live board needs to know about the actual draft: how many rounds
+// are really being drafted (a league can leave roster spots for waivers, so
+// roster_positions overcounts), which draft to save picks under, and which
+// slot the signed-in manager is sitting in.
+type DraftMeta = {
+  draft_id: string;
+  rounds: number | null;
+  my_slot: number | null;
+};
+
+// Read straight from Sleeper's public draft endpoint. Our own backend has no
+// route for draft settings and is off limits in this change, and this is an
+// unauthenticated read of the same data the league page already shows.
+async function fetchDraftMeta(
+  leagueId: string,
+  sleeperUserId: string | null
+): Promise<DraftMeta | null> {
+  try {
+    const res = await fetch(`https://api.sleeper.app/v1/league/${leagueId}/drafts`);
+    if (!res.ok) return null;
+    const drafts = (await res.json()) as {
+      draft_id: string;
+      settings?: { rounds?: number };
+      draft_order?: Record<string, number> | null;
+    }[];
+    const draft = drafts?.[0];
+    if (!draft?.draft_id) return null;
+    const order = draft.draft_order ?? {};
+    const slot = sleeperUserId ? order[sleeperUserId] : undefined;
+    return {
+      draft_id: draft.draft_id,
+      rounds: draft.settings?.rounds ?? null,
+      my_slot: typeof slot === "number" ? slot : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const DRAFT_LOG_PREFIX = "ffb_draft_log:";
+
+function loadStoredLog(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 // A plain browser fetch failure (network down, CORS rejection, backend
 // unreachable) throws a bare TypeError with no useful detail - surface
@@ -590,7 +654,10 @@ function DraftApp({
   const [roster, setRoster] = useState<Roster | null>(null);
   const [rosterError, setRosterError] = useState<string | null>(null);
   const [results, setResults] = useState<ScenarioStats[]>([]);
-  const [mySlot, setMySlot] = useState(4);
+  const [mySlot, setMySlot] = useState(1);
+  // Where the slot came from. "default" means nobody has confirmed it, so the
+  // board must not claim it is your pick on the strength of a guess.
+  const [slotSource, setSlotSource] = useState<"default" | "auto" | "manual">("default");
   const [nSims, setNSims] = useState(500);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -598,7 +665,12 @@ function DraftApp({
   const [posFilter, setPosFilter] = useState<string>("ALL");
   const [forcedPicks, setForcedPicks] = useState<{ round: number; playerId: string }[]>([]);
   const [draftLog, setDraftLog] = useState<string[]>([]);
-  const [nextPickPlayer, setNextPickPlayer] = useState("");
+  // undefined while we are still asking Sleeper, null once that has failed.
+  const [draftMeta, setDraftMeta] = useState<DraftMeta | null | undefined>(undefined);
+  const [logKey, setLogKey] = useState<string | null>(null);
+  const [restoredCount, setRestoredCount] = useState(0);
+  const [roundsOverride, setRoundsOverride] = useState<number | null>(null);
+  const [pickQuery, setPickQuery] = useState("");
   const [teamNames, setTeamNames] = useState<Record<number, string>>({});
   const [lastSample, setLastSample] = useState<SamplePick[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -650,7 +722,15 @@ function DraftApp({
       .catch(() => setPlayers([]));
 
     setForcedPicks([]);
+    // Drop the log and its storage key together. Clearing the log while the old
+    // key is still live would save an empty board over the previous league's.
     setDraftLog([]);
+    setLogKey(null);
+    setRestoredCount(0);
+    setDraftMeta(undefined);
+    setRoundsOverride(null);
+    setSlotSource("default");
+    setMySlot(1);
     setWaivers([]);
     setLastSample([]);
     setSeasonSim(null);
@@ -674,6 +754,49 @@ function DraftApp({
       .then(setRoster)
       .catch((e) => setRosterError(e.message));
   }, [activeKey, user]);
+
+  // Ask Sleeper what this draft actually is: real round count, its id (which
+  // keys the saved log), and the slot this manager is drafting from.
+  useEffect(() => {
+    const league = leagues.find((l) => l.key === activeKey);
+    if (!league) return;
+    let cancelled = false;
+    fetchDraftMeta(league.league_id, user?.sleeper_user_id ?? null).then((meta) => {
+      if (cancelled) return;
+      setDraftMeta(meta);
+      if (meta?.my_slot) {
+        setMySlot(meta.my_slot);
+        setSlotSource("auto");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeKey, leagues, user]);
+
+  // Restore the log for this draft. Waits for the Sleeper answer so the board
+  // is saved under one key per draft, not one under the league and one under
+  // the draft id.
+  useEffect(() => {
+    const league = leagues.find((l) => l.key === activeKey);
+    if (!league || draftMeta === undefined) return;
+    const key = `${DRAFT_LOG_PREFIX}${draftMeta?.draft_id ?? league.league_id}`;
+    const stored = loadStoredLog(key);
+    setDraftLog(stored);
+    setRestoredCount(stored.length);
+    setLogKey(key);
+  }, [activeKey, leagues, draftMeta]);
+
+  // Every logged pick is written through immediately, so a refresh, a closed
+  // tab or a slept laptop mid-draft costs nothing.
+  useEffect(() => {
+    if (!logKey) return;
+    try {
+      localStorage.setItem(logKey, JSON.stringify(draftLog));
+    } catch {
+      // Storage full or blocked: the board still works for this session.
+    }
+  }, [logKey, draftLog]);
 
   useEffect(() => {
     if (!activeKey) return;
@@ -816,15 +939,26 @@ function DraftApp({
   function logPick(playerId: string) {
     if (!playerId) return;
     setDraftLog((prev) => (prev.includes(playerId) ? prev : [...prev, playerId]));
-    setNextPickPlayer("");
-  }
-
-  function logNextPick() {
-    logPick(nextPickPlayer);
+    setPickQuery("");
   }
 
   function undoLastPick() {
     setDraftLog((prev) => prev.slice(0, -1));
+  }
+
+  // A log left over from an earlier draft is worse than no log at all, so
+  // clearing is deliberate and always available.
+  function clearBoard() {
+    if (draftLog.length && !window.confirm(`Clear all ${draftLog.length} logged picks?`)) return;
+    setDraftLog([]);
+    setRestoredCount(0);
+    if (logKey) {
+      try {
+        localStorage.removeItem(logKey);
+      } catch {
+        // Nothing to do: the in-memory board is cleared either way.
+      }
+    }
   }
 
   const nextRound = active ? Math.floor(draftLog.length / active.num_teams) + 1 : 1;
@@ -832,6 +966,60 @@ function DraftApp({
   const draftedIds = new Set(draftLog);
   const boardPickable = pickablePlayers.filter((p) => !draftedIds.has(p.player_id));
   const availableWaivers = waivers.filter((p) => !draftedIds.has(p.player_id));
+
+  const lastPickId = draftLog[draftLog.length - 1];
+  const lastPickName = lastPickId ? playerById.get(lastPickId)?.name ?? lastPickId : null;
+  // Sleeper's own round count is the truth: a league can run fewer rounds than
+  // it has roster spots and leave the rest to waivers. Roster slots, minus the
+  // ones nobody drafts into, are only the fallback when Sleeper is unreachable.
+  const derivedRounds = active
+    ? Math.max(1, active.roster_positions.filter((s) => s !== "IR" && s !== "TAXI").length)
+    : 1;
+  const boardRounds = roundsOverride ?? draftMeta?.rounds ?? derivedRounds;
+  const slots = active ? Array.from({ length: active.num_teams }, (_, i) => i + 1) : [];
+  // Place every pick with the same snake helper the clock uses, so the grid and
+  // "on the clock" can never disagree about whose turn it is.
+  const boardCells: { pickIndex: number; playerId?: string }[][] = Array.from(
+    { length: active ? boardRounds : 0 },
+    () => [] as { pickIndex: number; playerId?: string }[]
+  );
+  if (active) {
+    for (let i = 0; i < boardRounds * active.num_teams; i++) {
+      const round = Math.floor(i / active.num_teams);
+      const slot = slotForPick(i, active.num_teams);
+      boardCells[round][slot - 1] = { pickIndex: i, playerId: draftLog[i] };
+    }
+  }
+  // How many picks until your turn. From an end slot two of your picks land
+  // back to back at the turn, so "next" needs to arrive as a warning while
+  // there is still time to have a name ready, not as a notification.
+  const totalBoardPicks = active ? boardRounds * active.num_teams : 0;
+  let myNextPick = -1;
+  if (active && slotSource !== "default") {
+    for (let i = draftLog.length; i < totalBoardPicks; i++) {
+      if (slotForPick(i, active.num_teams) === mySlot) {
+        myNextPick = i;
+        break;
+      }
+    }
+  }
+  const picksAway = myNextPick < 0 ? -1 : myNextPick - draftLog.length;
+  const onTheClock = picksAway === 0;
+  const upNext = picksAway > 0 && picksAway <= 3;
+  const backToBack =
+    active !== null &&
+    myNextPick >= 0 &&
+    myNextPick + 1 < totalBoardPicks &&
+    slotForPick(myNextPick + 1, active.num_teams) === mySlot;
+  const boardState = onTheClock ? "is-mine" : upNext ? "is-next" : "";
+
+  // The /recommend refetch lags a pick behind, so drop anyone already logged.
+  const liveRecs = recommendations.filter((r) => !draftedIds.has(r.player_id));
+  const queryMatches = pickQuery.trim()
+    ? boardPickable
+        .filter((p) => p.name.toLowerCase().includes(pickQuery.trim().toLowerCase()))
+        .slice(0, 8)
+    : boardPickable.slice(0, 8);
 
   const domainMin = results.length ? Math.min(...results.map((r) => r.p10)) : 0;
   const domainMax = results.length ? Math.max(...results.map((r) => r.p90)) : 1;
@@ -958,6 +1146,224 @@ function DraftApp({
 
       {active && view === "draft" && (
         <div className="grid">
+          <div className={`card full-width draft-room ${boardState}`}>
+            <div className="draft-room-bar">
+              <div className="draft-clock">
+                <span className="draft-clock-label">
+                  {slotSource === "default"
+                    ? "Set your slot to track your turn"
+                    : onTheClock
+                      ? "You are on the clock"
+                      : upNext
+                        ? `You are up in ${picksAway} ${picksAway === 1 ? "pick" : "picks"}`
+                        : "On the clock"}
+                </span>
+                <span className="draft-clock-team">
+                  {teamNames[nextSlot] ?? `Slot ${nextSlot}`}
+                </span>
+                {backToBack && (
+                  <span className="draft-clock-note">
+                    Back to back: you pick {myNextPick + 1} and {myNextPick + 2}
+                  </span>
+                )}
+              </div>
+              <div className="draft-clock-pick">
+                <span className="draft-clock-round">R{nextRound}</span>
+                <span className="draft-clock-sep">/</span>
+                <span className="draft-clock-slot">{nextSlot}</span>
+                <span className="draft-clock-overall">pick {draftLog.length + 1}</span>
+              </div>
+              <label
+                className={`draft-slot-field ${slotSource === "default" ? "is-unset" : ""}`}
+              >
+                <span>My slot</span>
+                <select
+                  value={mySlot}
+                  onChange={(e) => {
+                    setMySlot(Number(e.target.value));
+                    setSlotSource("manual");
+                  }}
+                >
+                  {slotSource === "default" && <option value={mySlot}>Pick your slot</option>}
+                  {slots.map((s) => (
+                    <option key={s} value={s}>
+                      {s} · {teamNames[s] ?? `Slot ${s}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="draft-undo"
+                onClick={undoLastPick}
+                disabled={draftLog.length === 0}
+              >
+                Undo {lastPickName ? shortName(lastPickName) : "pick"}
+              </button>
+            </div>
+
+            <div className="draft-saved">
+              <span>
+                {draftLog.length === 0
+                  ? "Nothing logged yet. Picks save to this browser as you log them."
+                  : restoredCount > 0 && restoredCount === draftLog.length
+                    ? `Restored ${draftLog.length} logged picks for this draft.`
+                    : `${draftLog.length} picks logged and saved for this draft.`}
+                {draftMeta?.draft_id ? ` Draft ${draftMeta.draft_id}.` : ""}
+              </span>
+              <label className="draft-rounds-field">
+                <span>Rounds</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={boardRounds}
+                  onChange={(e) => setRoundsOverride(Number(e.target.value) || 1)}
+                />
+              </label>
+              <button className="draft-clear" onClick={clearBoard} disabled={!draftLog.length}>
+                Clear board
+              </button>
+            </div>
+
+            <div className="draft-room-cols">
+              <section className="draft-panel">
+                <h3 className="draft-panel-head">
+                  {onTheClock
+                    ? "Take the best value"
+                    : upNext
+                      ? "Have one ready"
+                      : "Best available"}
+                </h3>
+                {liveRecs.length === 0 && (
+                  <p className="draft-empty">No recommendations available yet.</p>
+                )}
+                <ol className="draft-recs">
+                  {liveRecs.slice(0, 5).map((r, i) => (
+                    <li key={r.player_id}>
+                      <button className="draft-rec" onClick={() => logPick(r.player_id)}>
+                        <span className="draft-rec-rank">{i + 1}</span>
+                        <img
+                          className="avatar avatar-sm"
+                          src={avatarUrl(r.player_id, r.position, r.name)}
+                          onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                          alt=""
+                        />
+                        <span className="draft-rec-body">
+                          <span className="draft-rec-line">
+                            <span className="draft-rec-name">{r.name}</span>
+                            <span className="pos-pill">{r.position}</span>
+                            <span className="draft-rec-vorp">+{r.vorp.toFixed(0)}</span>
+                          </span>
+                          <span className="draft-rec-reason">{r.reason}</span>
+                        </span>
+                        <span className="draft-rec-go">Log</span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+
+              <section className="draft-panel">
+                <h3 className="draft-panel-head">Log any pick</h3>
+                <input
+                  className="draft-search"
+                  value={pickQuery}
+                  onChange={(e) => setPickQuery(e.target.value)}
+                  placeholder="Type a name, then press Enter"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && queryMatches.length) {
+                      logPick(queryMatches[0].player_id);
+                    }
+                  }}
+                  aria-label="Search players to log a pick"
+                  autoFocus
+                />
+                {queryMatches.length === 0 && (
+                  <p className="draft-empty">Nobody left by that name.</p>
+                )}
+                <ul className="draft-matches">
+                  {queryMatches.map((p) => (
+                    <li key={p.player_id}>
+                      <button className="draft-match" onClick={() => logPick(p.player_id)}>
+                        <img
+                          className="avatar avatar-sm"
+                          src={avatarUrl(p.player_id, p.position, p.name)}
+                          onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                          alt=""
+                        />
+                        <span className="draft-match-name">{p.name}</span>
+                        <span className="pos-pill">{p.position}</span>
+                        <span className="draft-match-adp">{Number(p.adp).toFixed(1)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+
+            <div className="draft-grid-head">
+              <h3 className="draft-panel-head">
+                The board
+                <span className="draft-grid-legend">
+                  {draftLog.length} of {boardRounds * active.num_teams} picks in
+                </span>
+              </h3>
+            </div>
+            <div className="draft-grid-scroll">
+              <table className="draft-grid">
+                <thead>
+                  <tr>
+                    <th className="draft-grid-corner">Rd</th>
+                    {slots.map((s) => (
+                      <th key={s} className={s === mySlot ? "is-mine-col" : ""}>
+                        <span className="draft-grid-slot">{s}</span>
+                        <span className="draft-grid-owner">
+                          {teamNames[s] ?? `Slot ${s}`}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {boardCells.map((row, round) => (
+                    <tr key={round}>
+                      <th className="draft-grid-round">{round + 1}</th>
+                      {row.map((cell, i) => {
+                        const slot = i + 1;
+                        const player = cell.playerId ? playerById.get(cell.playerId) : undefined;
+                        const isNow = cell.pickIndex === draftLog.length;
+                        const classes = [
+                          cell.playerId ? "is-filled" : "is-open",
+                          slot === mySlot ? "is-mine-col" : "",
+                          isNow ? "is-now" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ");
+                        return (
+                          <td key={slot} className={classes}>
+                            {cell.playerId ? (
+                              <>
+                                <span className="draft-cell-name">
+                                  {shortName(player?.name ?? cell.playerId)}
+                                </span>
+                                <span className="draft-cell-meta">
+                                  <span className="draft-cell-pos">{player?.position ?? "-"}</span>
+                                  <span className="draft-cell-num">{cell.pickIndex + 1}</span>
+                                </span>
+                              </>
+                            ) : (
+                              <span className="draft-cell-num">{cell.pickIndex + 1}</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="card full-width">
             <h2>Your Roster</h2>
             {!user && (
@@ -1014,95 +1420,6 @@ function DraftApp({
                     ))}
                 </ul>
               </>
-            )}
-          </div>
-
-          <div className="card full-width">
-            <h2>Live Draft Board</h2>
-            <p className="state-msg" style={{ marginBottom: 14 }}>
-              Track the real draft here as it happens, pick by pick. Every pick you log here is
-              locked in and removed from the simulator.
-            </p>
-            <div className={`draft-board-status ${nextSlot === mySlot ? "on-the-clock" : ""}`}>
-              <span>
-                On the clock: <strong>Round {nextRound}</strong>,{" "}
-                <strong>{teamNames[nextSlot] ?? `Slot ${nextSlot}`}</strong>
-              </span>
-              {nextSlot === mySlot && <span className="your-pick-badge">Your pick</span>}
-              {draftLog.length > 0 && (
-                <button className="remove-pick-btn undo-btn" onClick={undoLastPick} title="Undo last pick">
-                  ↺ Undo
-                </button>
-              )}
-            </div>
-
-            {nextSlot === mySlot && recommendations.length > 0 && (
-              <div className="your-turn-box">
-                <span className="recommend-label">It's your pick, take the best value</span>
-                <ol className="rank-list">
-                  {recommendations.slice(0, 5).map((r, i) => (
-                    <li key={r.player_id} className="rank-row rank-row-clickable" onClick={() => logPick(r.player_id)}>
-                      <span className="rank-num">{i + 1}</span>
-                      <img
-                        className="avatar avatar-sm"
-                        src={avatarUrl(r.player_id, r.position, r.name)}
-                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
-                        alt=""
-                      />
-                      <div className="rank-body">
-                        <div className="rank-top-line">
-                          <span className="rank-name">{r.name}</span>
-                          <span className="pos-pill">{r.position}</span>
-                          <span className="rank-vorp">+{r.vorp.toFixed(0)} VORP</span>
-                        </div>
-                        <p className="rank-reason">{r.reason}</p>
-                      </div>
-                      <button className="draft-pick-btn">Draft</button>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-
-            <details className="any-pick-picker">
-              <summary>
-                {nextSlot === mySlot ? "Or pick someone else" : "Log this pick"}
-              </summary>
-              <div className="force-row">
-                <select value={nextPickPlayer} onChange={(e) => setNextPickPlayer(e.target.value)}>
-                  <option value="">Select who was picked...</option>
-                  {boardPickable.map((p) => (
-                    <option key={p.player_id} value={p.player_id}>
-                      {p.name} ({p.position}, ADP {Number(p.adp).toFixed(1)})
-                    </option>
-                  ))}
-                </select>
-                <button className="remove-pick-btn" onClick={logNextPick} title="Log pick">
-                  ✓
-                </button>
-              </div>
-            </details>
-            {draftLog.length > 0 && (
-              <ol className="draft-log">
-                {draftLog.map((id, i) => {
-                  const slot = slotForPick(i, active.num_teams);
-                  return (
-                    <li key={i} className={slot === mySlot ? "mine" : ""}>
-                      <img
-                        className="avatar avatar-sm"
-                        src={avatarUrl(id, playerById.get(id)?.position, playerById.get(id)?.name)}
-                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
-                        alt=""
-                      />
-                      <span className="draft-log-pick">
-                        R{Math.floor(i / active.num_teams) + 1}.{slot}
-                      </span>
-                      {playerById.get(id)?.name ?? id}
-                      <span className="draft-log-team">{teamNames[slot] ?? `Slot ${slot}`}</span>
-                    </li>
-                  );
-                })}
-              </ol>
             )}
           </div>
 

@@ -690,14 +690,6 @@
   border: 1px solid var(--border);
 }
 
-.recommend-label {
-  display: block;
-  font-size: 11.5px;
-  color: var(--text-dim);
-  margin-bottom: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
 
 .recommend-chip {
   background: var(--panel);
@@ -766,14 +758,6 @@
   color: var(--text-dim);
 }
 
-.draft-board-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-  font-size: 14px;
-  color: var(--text-dim);
-}
 
 .your-pick-badge {
   padding: 3px 10px;
@@ -784,62 +768,14 @@
   font-weight: 600;
 }
 
-.draft-board-status.on-the-clock {
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--accent);
-}
 
-.undo-btn {
-  margin-left: auto;
-  width: auto;
-  padding: 0 10px;
-  font-size: 12px;
-}
 
-.your-turn-box {
-  margin-bottom: 14px;
-  padding: 14px;
-  border-radius: 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--accent);
-}
 
-.rank-row-clickable {
-  cursor: pointer;
-}
 
-.rank-row-clickable:hover {
-  border-color: var(--accent);
-}
 
-.draft-pick-btn {
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
 
-.any-pick-picker {
-  margin-bottom: 8px;
-}
 
-.any-pick-picker summary {
-  cursor: pointer;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  margin-bottom: 8px;
-}
 
-.any-pick-picker summary:hover {
-  color: var(--accent);
-}
 
 .schedule-list {
   list-style: none;
@@ -913,48 +849,11 @@
   gap: 6px;
 }
 
-.draft-log {
-  margin: 14px 0 0;
-  padding-left: 0;
-  list-style: none;
-  max-height: 220px;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 6px 14px;
-}
 
-.draft-log li {
-  display: flex;
-  align-items: center;
-  font-size: 13px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-}
 
-.draft-log li .avatar-sm {
-  margin-right: 8px;
-}
 
-.draft-log li.mine {
-  color: var(--accent-dark);
-  font-weight: 600;
-}
 
-.draft-log-pick {
-  display: inline-block;
-  min-width: 42px;
-  color: var(--text-dim);
-  font-weight: 500;
-  margin-right: 8px;
-}
 
-.draft-log-team {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-dim);
-}
 
 .reason-list {
   list-style: none;
@@ -1155,4 +1054,613 @@
 .repo-link:hover {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Live Draft Board.                                                    */
+/* The rest of the site is a calm cream reading surface. The draft room */
+/* is the one place used against a live pick timer, as short as 30      */
+/* seconds in one league, so it inverts into a dark scoreboard: its own */
+/* tokens, bigger targets, tabular numbers.                             */
+/* ------------------------------------------------------------------ */
+.draft-room {
+  color-scheme: dark;
+  --dr-bg: #16130e;
+  --dr-panel: #1f1b14;
+  --dr-panel-2: #262117;
+  --dr-line: #383021;
+  --dr-text: #f4efe2;
+  --dr-dim: #9a927f;
+  --dr-accent: #e0855c;
+  --dr-live: #f2c14e;
+  --dr-next: #7fb6d9;
+  --dr-cell: 100px;
+  background: var(--dr-bg);
+  border-color: #2b2419;
+  color: var(--dr-text);
+  padding: 0;
+}
+
+/* The scoreboard strip. Sticky so the clock and Undo stay reachable no
+   matter how far down the board you have scrolled. */
+.draft-room-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 20px;
+  padding: 16px 22px;
+  background: var(--dr-panel);
+  border-bottom: 1px solid var(--dr-line);
+  /* No overflow clipping on .draft-room, or this would stop sticking. */
+  border-radius: 17px 17px 0 0;
+}
+
+.draft-clock {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.draft-clock-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dr-dim);
+}
+
+.draft-room.is-mine .draft-clock-label {
+  color: var(--dr-live);
+}
+
+/* Amber means act now. Blue means get a name ready. Two turns can be two
+   picks apart from an end slot, so these must never be mistaken. */
+.draft-room.is-next .draft-clock-label {
+  color: var(--dr-next);
+}
+
+.draft-clock-note {
+  font-size: 11.5px;
+  color: var(--dr-next);
+}
+
+.draft-clock-team {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.draft-room.is-mine .draft-clock-team {
+  color: var(--dr-live);
+}
+
+.draft-room.is-mine .draft-room-bar {
+  box-shadow: inset 3px 0 0 var(--dr-live);
+}
+
+.draft-room.is-next .draft-room-bar {
+  box-shadow: inset 3px 0 0 var(--dr-next);
+}
+
+/* The pick coordinate, set like a scoreboard readout. */
+.draft-clock-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-clock-round,
+.draft-clock-slot {
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.draft-clock-sep {
+  font-size: 20px;
+  color: var(--dr-dim);
+}
+
+.draft-clock-overall {
+  margin-left: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dr-dim);
+}
+
+.draft-slot-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dr-dim);
+}
+
+.draft-slot-field.is-unset {
+  color: var(--dr-live);
+}
+
+.draft-slot-field.is-unset select {
+  border-color: var(--dr-live);
+}
+
+.draft-slot-field select {
+  background: var(--dr-panel-2);
+  border: 1px solid var(--dr-line);
+  border-radius: 10px;
+  padding: 9px 10px;
+  color: var(--dr-text);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  max-width: 190px;
+}
+
+/* Undo names the pick it removes, so it can be hit without reading twice. */
+.draft-undo {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--dr-line);
+  background: transparent;
+  color: var(--dr-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.draft-undo:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: #f0947f;
+}
+
+.draft-undo:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* What is saved, and how to throw it away. A log left over from another
+   session loading into a fresh draft is worse than no log at all. */
+.draft-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 9px 22px;
+  background: #1a1610;
+  border-bottom: 1px solid var(--dr-line);
+  font-size: 11.5px;
+  color: var(--dr-dim);
+}
+
+.draft-saved > span {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.draft-rounds-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.draft-rounds-field input {
+  width: 58px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--dr-line);
+  background: var(--dr-panel-2);
+  color: var(--dr-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-clear {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--dr-line);
+  background: transparent;
+  color: var(--dr-dim);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.draft-clear:hover:not(:disabled) {
+  color: #f0947f;
+  border-color: var(--danger);
+}
+
+.draft-clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.draft-room-cols {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 22px;
+  padding: 20px 22px 6px;
+}
+
+.draft-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dr-dim);
+}
+
+.draft-empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--dr-dim);
+}
+
+.draft-recs,
+.draft-matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.draft-rec,
+.draft-match {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--dr-line);
+  background: var(--dr-panel);
+  color: var(--dr-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.draft-rec:hover,
+.draft-match:hover {
+  border-color: var(--dr-accent);
+  background: var(--dr-panel-2);
+}
+
+.draft-rec:focus-visible,
+.draft-match:focus-visible,
+.draft-undo:focus-visible,
+.draft-search:focus-visible {
+  outline: 2px solid var(--dr-live);
+  outline-offset: 2px;
+}
+
+.draft-room.is-mine .draft-recs li:first-child .draft-rec {
+  border-color: var(--dr-live);
+}
+
+.draft-rec-rank {
+  width: 16px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--dr-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-rec-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.draft-rec-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.draft-rec-name {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.draft-rec-vorp {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--dr-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-rec-reason {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--dr-dim);
+}
+
+.draft-rec-go {
+  flex: none;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--dr-accent);
+  color: #16130e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draft-search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--dr-line);
+  background: var(--dr-panel-2);
+  color: var(--dr-text);
+  font-family: inherit;
+  font-size: 14.5px;
+}
+
+.draft-search::placeholder {
+  color: var(--dr-dim);
+}
+
+.draft-match-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-match-adp {
+  font-size: 11.5px;
+  color: var(--dr-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-room .pos-pill {
+  background: var(--dr-panel-2);
+  color: var(--dr-dim);
+}
+
+.draft-room .avatar-sm {
+  background: var(--dr-panel-2);
+}
+
+.draft-grid-head {
+  padding: 14px 22px 0;
+}
+
+.draft-grid-legend {
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 12 team columns are wider than the page, so the board scrolls inside
+   its own frame and the page itself never scrolls sideways. */
+.draft-grid-scroll {
+  overflow-x: auto;
+  padding: 0 22px 22px;
+}
+
+.draft-grid {
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-grid th,
+.draft-grid td {
+  padding: 0;
+}
+
+.draft-grid thead th {
+  width: var(--dr-cell);
+  padding: 4px 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+.draft-grid-slot {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--dr-dim);
+}
+
+.draft-grid-owner {
+  display: block;
+  font-size: 11.5px;
+  color: var(--dr-text);
+  max-width: var(--dr-cell);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-grid thead th.draft-grid-corner,
+.draft-grid tbody th.draft-grid-round {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--dr-bg);
+  /* Covers the 3px cell gap, so scrolled cells do not peek past the rail. */
+  box-shadow: 4px 0 0 var(--dr-bg);
+  width: 30px;
+  min-width: 30px;
+  font-family: var(--serif);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--dr-dim);
+  text-align: center;
+}
+
+.draft-grid td {
+  width: var(--dr-cell);
+  height: 42px;
+  padding: 5px 7px;
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
+.draft-grid td.is-open {
+  background: #1b1710;
+  border: 1px solid transparent;
+  color: var(--dr-dim);
+  text-align: right;
+}
+
+.draft-grid td.is-filled {
+  background: var(--dr-panel);
+  border: 1px solid var(--dr-line);
+}
+
+.draft-grid th.is-mine-col .draft-grid-owner,
+.draft-grid th.is-mine-col .draft-grid-slot {
+  color: var(--dr-accent);
+}
+
+/* Your own column is the one you scan for. Tint the whole run of cells
+   rather than only the filled ones, so the column reads as a stripe. */
+.draft-grid td.is-mine-col {
+  background: #2a1f17;
+  border-color: #4a3323;
+}
+
+.draft-grid td.is-now {
+  border: 1px solid var(--dr-live);
+  background: #2c2411;
+  animation: draft-now-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes draft-now-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 193, 78, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(242, 193, 78, 0.22); }
+}
+
+.draft-cell-name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-cell-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.draft-cell-pos {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--dr-dim);
+}
+
+.draft-cell-num {
+  font-size: 10px;
+  color: var(--dr-dim);
+}
+
+.draft-grid td.is-mine-col .draft-cell-name {
+  color: var(--dr-accent);
+}
+
+/* A 14 team board is wider than the page at any readable cell size, so it
+   scrolls. Shrink the cells on smaller screens to keep the scroll short. */
+@media (max-width: 1200px) {
+  .draft-room {
+    --dr-cell: 88px;
+  }
+}
+
+@media (max-width: 700px) {
+  .draft-room {
+    --dr-cell: 80px;
+  }
+}
+
+/* One column on a laptop in portrait or a phone: the two panels stack,
+   recommendations first, and the scoreboard bar wraps onto two rows. */
+@media (max-width: 860px) {
+  .draft-room-cols {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 18px 16px 4px;
+  }
+
+  .draft-room-bar {
+    padding: 14px 16px;
+    gap: 10px 14px;
+  }
+
+  .draft-clock-team {
+    font-size: 21px;
+  }
+
+  .draft-grid-head {
+    padding: 12px 16px 0;
+  }
+
+  .draft-grid-scroll {
+    padding: 0 16px 18px;
+  }
+
+  .draft-saved {
+    padding: 9px 16px;
+  }
+
+  .draft-undo {
+    flex: 1 1 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draft-grid td.is-now {
+    animation: none;
+  }
+
+  .draft-rec,
+  .draft-match {
+    transition: none;
+  }
 }
