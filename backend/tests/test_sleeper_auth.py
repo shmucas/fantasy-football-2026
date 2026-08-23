@@ -96,6 +96,18 @@ def test_mutations_describe_instead_of_firing_in_dry_run(monkeypatch):
     assert isinstance(client.accept_trade("L1", "t1", 1), PlannedWrite)
 
 
+def test_make_draft_pick_shapes_the_mutation(monkeypatch):
+    monkeypatch.delenv("FFB_ALLOW_WRITES", raising=False)
+    client = SleeperAuthClient(token=make_token())
+    planned = client.make_draft_pick("D1", "9509", pick_no=2)
+    assert isinstance(planned, PlannedWrite)
+    assert planned.operation == "draft_pick_player"
+    assert planned.variables == {
+        "sport": "nfl", "player_id": "9509", "draft_id": "D1", "pick_no": 2,
+    }
+    assert isinstance(client.set_autopick("D1"), PlannedWrite)
+
+
 def test_explicit_dry_run_false_still_needs_the_env_switch(monkeypatch):
     """Belt and braces: passing dry_run=False in code is not enough on its own."""
     monkeypatch.delenv("FFB_ALLOW_WRITES", raising=False)

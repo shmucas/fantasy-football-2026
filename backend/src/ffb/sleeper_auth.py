@@ -369,3 +369,43 @@ class SleeperAuthClient:
             "drops": {drop_player_id: roster_id} if drop_player_id else {},
             "waiver_budget": int(faab_bid),
         })
+
+    def make_draft_pick(
+        self, draft_id: str, player_id: str, pick_no: int, sport: str = "nfl"
+    ) -> dict | PlannedWrite:
+        """Submit a pick in a live draft.
+
+        `pick_no` is the overall pick number (1-based) this draft is on, the
+        way the live draft board counts them. Sleeper uses it to reject a pick
+        that arrives out of turn, so a stale poll can't double-pick.
+        """
+        query = """
+        mutation draft_pick_player(
+          $sport: String, $player_id: String, $draft_id: Snowflake!, $pick_no: Int
+        ) {
+          draft_pick_player(
+            sport: $sport, player_id: $player_id, draft_id: $draft_id, pick_no: $pick_no
+          ) { player_id pick_no picked_by draft_id is_keeper metadata }
+        }
+        """
+        return self._mutate("draft_pick_player", query, {
+            "sport": sport,
+            "player_id": player_id,
+            "draft_id": draft_id,
+            "pick_no": pick_no,
+        })
+
+    def set_autopick(self, draft_id: str) -> dict | PlannedWrite:
+        """Toggle Sleeper's own autopick ON for the token's user in this draft.
+
+        This makes the platform pick for us on every turn, so it is *not* what
+        the bot wants while it is alive (the two would race). It is a deliberate
+        "take over, Sleeper" switch if we decide to hand the draft back.
+        """
+        query = """
+        mutation put_user_on_autopick($draft_id: Snowflake!) {
+          put_user_on_autopick(draft_id: $draft_id)
+        }
+        """
+        return self._mutate("put_user_on_autopick", query, {"draft_id": draft_id})
+
