@@ -42,7 +42,12 @@ from pathlib import Path
 
 from ffb.draft.run_sims import load_players
 from ffb.draft.strategy import FLEX_ELIGIBLE, Player, replacement_levels, vorp
-from ffb.sleeper_auth import SleeperAuthClient, WritesDisabled
+from ffb.sleeper_auth import (
+    PlannedWrite,
+    SleeperAuthClient,
+    SleeperAuthError,
+    WritesDisabled,
+)
 from ffb.sleeper_client import SleeperClient
 
 
@@ -158,6 +163,7 @@ def main() -> int:
             positions = roster_positions_from_settings(draft["settings"])
             replacement = replacement_levels(pool_players, positions, num_teams)
             all_players = pool_players + kickers
+            last_submitted: int | None = None
 
             print(
                 f"draft {args.draft}: {num_teams} teams, {rounds} rounds, "
@@ -194,6 +200,16 @@ def main() -> int:
                     continue
 
                 pick_no = len(picks) + 1
+                # The picks list is eventually consistent: right after we submit,
+                # a re-poll can still show the old count. If we already submitted
+                # for this pick number, wait for the board to catch up instead of
+                # re-picking (which Sleeper would reject as a duplicate).
+                if last_submitted is not None and pick_no <= last_submitted:
+                    if args.once:
+                        return 0
+                    time.sleep(args.interval)
+                    continue
+
                 if not available:
                     print("no available players left in pool; nothing to pick")
                     if args.once:
@@ -211,17 +227,21 @@ def main() -> int:
                 except WritesDisabled:
                     print("  (writes disabled; would have submitted this pick)")
                     return 0
+                except SleeperAuthError as exc:
+                    # Out-of-turn or duplicate: don't crash, just wait and re-poll.
+                    print(f"  !! Sleeper rejected the pick ({exc}); waiting and re-polling")
+                    if args.once:
+                        return 0
+                    time.sleep(args.interval)
+                    continue
 
-                # Confirm it landed before trusting it.
-                _, after = fetch_state(read, args.draft)
-                landed = any(
-                    pk.get("player_id") == choice.player_id and pk.get("pick_no") == pick_no
-                    for pk in after
-                )
-                if landed:
-                    print(f"  -> picked {choice.name}")
+                if isinstance(result, PlannedWrite):
+                    print(f"  (dry run) would pick {choice.name}")
                 else:
-                    print(f"  !! pick did not confirm as landing; result={result!r}")
+                    # A dict back means Sleeper processed it; that is the
+                    # confirmation, so do not trust a follow-up poll for it.
+                    last_submitted = pick_no
+                    print(f"  -> picked {choice.name} (Sleeper confirmed pick {pick_no})")
 
                 if args.once:
                     return 0
