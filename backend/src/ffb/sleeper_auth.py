@@ -409,3 +409,38 @@ class SleeperAuthClient:
         """
         return self._mutate("put_user_on_autopick", query, {"draft_id": draft_id})
 
+    def free_agent_move(
+        self,
+        league_id: str,
+        roster_id: int,
+        adds: list[str] | None = None,
+        drops: list[str] | None = None,
+    ) -> dict | PlannedWrite:
+        """Add and/or drop free agents for one roster in one transaction.
+
+        `adds` and `drops` are Sleeper player ids. Sleeper wants them as two
+        parallel lists (`k_*` player ids, `v_*` the roster they move for),
+        the same shape as `propose_trade`. A drop without an add is a plain
+        roster cut.
+        """
+        query = """
+        mutation league_create_transaction(
+          $type: String!, $league_id: Snowflake!,
+          $k_adds: [String], $v_adds: [Int], $k_drops: [String], $v_drops: [Int]
+        ) {
+          league_create_transaction(
+            type: $type, league_id: $league_id,
+            k_adds: $k_adds, v_adds: $v_adds, k_drops: $k_drops, v_drops: $v_drops
+          ) { transaction_id status type adds drops roster_ids }
+        }
+        """
+        return self._mutate("league_create_transaction", query, {
+            "type": "free_agent",
+            "league_id": league_id,
+            "k_adds": adds or [],
+            "v_adds": [roster_id] * len(adds or []),
+            "k_drops": drops or [],
+            "v_drops": [roster_id] * len(drops or []),
+        })
+
+

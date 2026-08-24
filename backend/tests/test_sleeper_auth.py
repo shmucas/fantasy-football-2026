@@ -108,6 +108,18 @@ def test_make_draft_pick_shapes_the_mutation(monkeypatch):
     assert isinstance(client.set_autopick("D1"), PlannedWrite)
 
 
+def test_free_agent_move_shapes_adds_and_drops():
+    client = SleeperAuthClient(token=make_token())
+    planned = client.free_agent_move("L1", 5, adds=["6783"], drops=["11638"])
+    assert isinstance(planned, PlannedWrite)
+    assert planned.operation == "league_create_transaction"
+    assert planned.variables["type"] == "free_agent"
+    assert planned.variables["k_adds"] == ["6783"]
+    assert planned.variables["v_adds"] == [5]
+    assert planned.variables["k_drops"] == ["11638"]
+    assert planned.variables["v_drops"] == [5]
+
+
 def test_explicit_dry_run_false_still_needs_the_env_switch(monkeypatch):
     """Belt and braces: passing dry_run=False in code is not enough on its own."""
     monkeypatch.delenv("FFB_ALLOW_WRITES", raising=False)
