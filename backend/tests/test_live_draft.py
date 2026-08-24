@@ -3,8 +3,10 @@
 from collections import Counter
 
 from ffb.draft.live import (
+    _def_name_parts,
     choose_pick,
     is_my_turn,
+    remap_defenses,
     room_for,
     roster_positions_from_settings,
     snake_slot,
@@ -67,7 +69,7 @@ def test_choose_pick_fills_open_slot_before_value():
         P("wr1", "WR", 280), P("wr2", "WR", 270), P("te1", "TE", 200),
     ]
     available = [P("qb1", "QB", 250), P("rb3", "RB", 260)]
-    choice = choose_pick(available, my_roster, POS, replacement)
+    choice = choose_pick(available, my_roster, POS, replacement, 3, 15)
     assert choice.player_id == "qb1"
 
 
@@ -80,4 +82,54 @@ def test_choose_pick_takes_best_vorp_when_no_slot_is_open():
         P("qb1", "QB", 250), P("te1", "TE", 200), P("k1", "K", 0), P("d1", "DEF", 120),
     ]
     available = [P("rb9", "RB", 240), P("wr9", "WR", 235)]
-    assert choose_pick(available, my_roster, POS, replacement).player_id == "rb9"
+    assert choose_pick(available, my_roster, POS, replacement, 13, 15).player_id == "rb9"
+
+
+def test_choose_pick_wont_take_defense_early():
+    # A defense has the highest raw VORP, but in an early round it must be
+    # skipped in favour of a skill player.
+    replacement = {"QB": 100.0, "RB": 150.0, "WR": 150.0, "TE": 100.0, "K": 0.0, "DEF": 80.0}
+    my_roster = [P("rb1", "RB", 300), P("wr1", "WR", 280)]
+    available = [
+        P("def1", "DEF", 160, name="Seattle Defense"),
+        P("wr9", "WR", 240),
+    ]
+    choice = choose_pick(available, my_roster, POS, replacement, 6, 17)
+    assert choice.player_id == "wr9"
+
+
+def test_choose_pick_will_take_defense_in_final_rounds():
+    # Late rounds: with no skill slot still open, the defense is now fair game.
+    replacement = {"QB": 100.0, "RB": 150.0, "WR": 150.0, "TE": 100.0, "K": 0.0, "DEF": 80.0}
+    my_roster = [
+        P("rb1", "RB", 300), P("rb2", "RB", 290), P("rb3", "RB", 280),
+        P("wr1", "WR", 280), P("wr2", "WR", 270), P("wr3", "WR", 260),
+        P("qb1", "QB", 250), P("te1", "TE", 200), P("k1", "K", 0),
+    ]
+    available = [P("def1", "DEF", 160, name="Seattle Defense"), P("wr9", "WR", 240)]
+    choice = choose_pick(available, my_roster, POS, replacement, 16, 17)
+    assert choice.player_id == "def1"
+
+
+def test_def_name_parts_resolve_city_and_mascot():
+    assert _def_name_parts("Seattle Defense") == ("seattle", "")
+    assert _def_name_parts("LA Rams Defense") == ("los angeles", "rams")
+    assert _def_name_parts("New England Defense") == ("new england", "")
+    assert _def_name_parts("SF 49ers Defense") == ("san francisco", "49ers")
+
+
+def test_remap_defenses_swaps_ffc_ids_for_sleeper_team_ids():
+    pool = [
+        P("ffc_1327", "DEF", 140, name="Seattle Defense"),
+        P("ffc_1328", "DEF", 129, name="LA Rams Defense"),
+        P("9509", "RB", 375, name="Bijan Robinson"),
+    ]
+    ids = {
+        ("seattle", "seahawks"): "SEA",
+        ("los angeles", "rams"): "LAR",
+    }
+    out = remap_defenses(pool, ids)
+    by_name = {p.name: p.player_id for p in out}
+    assert by_name["Seattle Defense"] == "SEA"
+    assert by_name["LA Rams Defense"] == "LAR"
+    assert by_name["Bijan Robinson"] == "9509"

@@ -11,9 +11,16 @@ while a starter/flex slot is still unfilled, we only consider players who fit
 one, ranked by VORP. Once every starter and flex slot is spoken for, the bench
 rounds just take the best VORP left.
 
-Kickers are the one gap: the prebuilt pool has no kicker projections. They are
-picked from Sleeper's player dump ordered by search rank (real user interest,
-not a fabricated projection) and only when the K slot is the last thing left.
+Defenses and kickers are special-cased, because their raw VORP is meaningless
+against skill players (a projected top defense outscores a mid-round WR in the
+model, but no one drafts a defense that early in real life). DEF and K are
+only eligible in the final two rounds, and skill slots are filled first even
+then.
+
+The pool stores defenses under FFC placeholder ids (`ffc_*`), not Sleeper
+team ids (`SEA`, `BUF`, ...). We remap them from Sleeper's player dump at
+startup, and kickers - which the pool omits entirely - are loaded from that
+same dump ordered by search rank (real user interest, not a projection).
 
 Safety rails:
 
@@ -38,6 +45,7 @@ import argparse
 import sys
 import time
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 from ffb.draft.run_sims import load_players
@@ -93,21 +101,102 @@ def choose_pick(
     my_roster: list[Player],
     roster_positions: list[str],
     replacement: dict[str, float],
+    current_round: int,
+    total_rounds: int,
 ) -> Player:
-    """Best pick: fill an open starter/flex slot by VORP, else best VORP left."""
+    """Best pick: fill an open starter/flex slot by VORP, else best VORP left.
+
+    DEF and K are gated to the final two rounds, because their raw VORP is not
+    comparable to skill players. Within the last two rounds we still prefer a
+    still-open skill slot over DEF/K (you fill your flex before your kicker).
+    """
     filled = Counter(p.position for p in my_roster)
-    roomed = [p for p in available if room_for(p.position, roster_positions, filled) > 0]
-    candidates = roomed if roomed else available
-    return max(candidates, key=lambda p: vorp(p, replacement))
+
+    def has_room(p: Player) -> bool:
+        return room_for(p.position, roster_positions, filled) > 0
+
+    late = current_round >= total_rounds - 1  # last two rounds
+
+    if not late:
+        candidates = [p for p in available if p.position not in ("DEF", "K")]
+    else:
+        skill = [p for p in available if p.position not in ("DEF", "K") and has_room(p)]
+        if skill:
+            candidates = skill
+        else:
+            candidates = available
+
+    roomed = [p for p in candidates if has_room(p)]
+    return max(roomed if roomed else candidates, key=lambda p: vorp(p, replacement))
+
+
+# Pool DEF names -> Sleeper team id. The pool uses FFC placeholder ids and
+# names like "LA Rams Defense"; Sleeper keys defenses by team code ("LAR") with
+# first/last name "Los Angeles"/"Rams". Match on the name, not the placeholder.
+_CITY_ALIASES = {
+    "LA": "Los Angeles",
+    "NY": "New York",
+    "SF": "San Francisco",
+    "GB": "Green Bay",
+    "KC": "Kansas City",
+    "TB": "Tampa Bay",
+    "NE": "New England",
+    "NO": "New Orleans",
+}
+
+
+def _def_name_parts(name: str) -> tuple[str, str]:
+    """'Seattle Defense' -> ('seattle', ''); 'LA Rams Defense' -> ('los angeles', 'rams')."""
+    base = name.removesuffix(" Defense").strip().lower()
+    words = base.split()
+    if len(words) == 1:
+        return words[0], ""
+    first = words[0].upper()
+    if first in _CITY_ALIASES:
+        return _CITY_ALIASES[first].lower(), " ".join(words[1:])
+    return base, ""
+
+
+def load_defenses(client: SleeperClient) -> dict[tuple[str, str], str]:
+    """(city, mascot) -> Sleeper team id, from the players dump."""
+    players = client.get_players("nfl")
+    out: dict[tuple[str, str], str] = {}
+    for p in players.values():
+        if p.get("position") != "DEF":
+            continue
+        city = (p.get("first_name") or "").strip().lower()
+        mascot = (p.get("last_name") or "").strip().lower()
+        out[(city, mascot)] = p["player_id"]
+    return out
+
+
+def remap_defenses(pool: list[Player], defense_ids: dict[tuple[str, str], str]) -> list[Player]:
+    """Swap ffc_* DEF ids for real Sleeper team ids, matched on name."""
+    remapped = []
+    for p in pool:
+        if p.position != "DEF":
+            remapped.append(p)
+            continue
+        city, mascot = _def_name_parts(p.name)
+        sid = defense_ids.get((city, mascot)) or defense_ids.get((city, ""))
+        if sid is None:
+            # e.g. pool says "New England Defense" but Sleeper has (new england, patriots)
+            sid = next(
+                (v for (c, _), v in defense_ids.items() if c == city), None
+            )
+        if sid is not None:
+            remapped.append(replace(p, player_id=sid))
+        else:
+            remapped.append(p)  # leave it; the submit will be rejected and logged
+    return remapped
 
 
 def load_kickers(client: SleeperClient) -> list[Player]:
     """Kickers from Sleeper's player dump, best search rank first.
 
     The pool has no kicker projections, so these carry proj_points=0 and are
-    only ever chosen once the K slot is the last open position. search_rank is
-    real Sleeper data (user interest), so "best" is at least a real signal,
-    not a made-up projection.
+    only ever chosen in the final two rounds. search_rank is real Sleeper data
+    (user interest), so "best" is at least a real signal, not a projection.
     """
     players = client.get_players("nfl")
     kickers = [p for p in players.values() if p.get("position") == "K"]
@@ -155,6 +244,7 @@ def main() -> int:
         pool_players = load_players(Path(args.pool))
         with SleeperClient() as read:
             draft = read.get_draft(args.draft)
+            pool_players = remap_defenses(pool_players, load_defenses(read))
             kickers = load_kickers(read)
 
             num_teams = int(draft["settings"]["teams"])
@@ -217,7 +307,11 @@ def main() -> int:
                     time.sleep(args.interval)
                     continue
 
-                choice = choose_pick(available, my_roster, positions, replacement)
+                choice = choose_pick(
+                    available, my_roster, positions, replacement,
+                    current_round=(pick_no - 1) // num_teams + 1,
+                    total_rounds=rounds,
+                )
                 print(
                     f"  MY TURN (pick {pick_no}): {choice.name} ({choice.position}), "
                     f"proj {choice.proj_points:.0f}, vorp {vorp(choice, replacement):.0f}"
