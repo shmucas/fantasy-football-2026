@@ -208,6 +208,39 @@ the frontend's Simulations tab, which charts expected wins, the win
 distribution, and a P10/P50/P90 points range - carrying over whatever's
 already logged on the Live Draft Board or planned as a forced pick.
 
+## Live draft bot
+
+`ffb/draft/live.py` auto-picks for you in a real Sleeper draft. It polls the
+public draft endpoints, works out whose turn it is from the snake order, and
+when it is yours submits the best available player through the private
+GraphQL (the `draft_pick_player` mutation in `sleeper_auth.py`).
+
+```bash
+cd backend
+set -a && . ./.env && set +a            # loads SLEEPER_TOKEN
+FFB_ALLOW_WRITES=1 .venv/bin/python -m ffb.draft.live \
+    --draft <draft_id> --pool data/pools/<key>.csv --interval 4
+```
+
+Pick decision is the same VORP model as the simulator, with two guardrails
+that only a real draft forces you to think about:
+
+- **DEF and K are gated to the final two rounds.** Their raw VORP is not
+  comparable to skill players - a projected top defense outscores a mid-round
+  WR in the model, and nothing will draft a defense that early for you faster
+  than a naive "max VORP" picker. Skill slots are filled first even in the last
+  two rounds.
+- **Defenses are remapped to real Sleeper ids.** The pool stores defenses
+  under FFC placeholder ids (`ffc_*`), which Sleeper rejects as "not
+  draftable". `live.py` matches them by name against Sleeper's player dump and
+  swaps in the team id (`SEA`, `BUF`, ...). Kickers - which the pool omits -
+  are loaded from that same dump ordered by search rank.
+
+Writes are dry-run unless `FFB_ALLOW_WRITES=1` (the same kill switch as every
+other mutation). The picks list is eventually consistent, so the bot trusts
+the mutation's own response as confirmation and remembers the last pick number
+it submitted rather than re-submitting on a stale poll.
+
 ## How the math works
 
 ### Player value: VORP
@@ -303,6 +336,7 @@ with:
 | `ffb/draft/strategy.py` | Player value + the opponent pick model |
 | `ffb/draft/sim.py` | One mock draft |
 | `ffb/draft/run_sims.py` | Many mock drafts, compare points |
+| `ffb/draft/live.py` | Live draft bot: auto-pick in a real Sleeper draft via the write API |
 | `ffb/draft/analyze.py` | Compare saved point results |
 | `ffb/sim/season.py` | One simulated season -> your wins |
 | `ffb/sim/evaluate.py` | Compare picks by expected wins (CLI and the Simulations tab's API) |
