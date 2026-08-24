@@ -151,3 +151,20 @@ def test_remap_skill_ids_fixes_ffc_placeholder_ids():
     assert by_name["Kenny Gainwell"] == "7567"
     assert by_name["Chig Okonkwo"] == "8210"
     assert by_name["Bijan Robinson"] == "9509"
+
+
+def test_sleeper_unavailable_flags_ir_and_inactive_players():
+    class StubClient:
+        def get_players(self, sport):
+            return {
+                "100": {"position": "RB", "injury_status": None, "status": "Active"},
+                "101": {"position": "WR", "injury_status": "IR", "status": "Inactive"},
+                "102": {"position": "TE", "injury_status": None, "status": "Inactive"},
+                "103": {"position": "QB", "injury_status": "Questionable", "status": "Active"},
+                "SEA": {"position": "DEF", "injury_status": None, "status": "Active"},
+            }
+
+    from ffb.draft.live import _sleeper_unavailable
+
+    unavailable = _sleeper_unavailable(StubClient())
+    assert unavailable == {"101", "102"}  # IR and inactive skill players only

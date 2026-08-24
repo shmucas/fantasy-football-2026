@@ -224,6 +224,24 @@ def remap_skill_ids(pool: list[Player], skill_ids: dict[tuple[str, str], str]) -
     return remapped
 
 
+def _sleeper_unavailable(client: SleeperClient) -> set[str]:
+    """Sleeper ids for players we must not draft: on IR or otherwise inactive.
+
+    The prebuilt pool is a snapshot; a player who went on season-ending IR
+    after the build still carries his full projection, so VORP will happily
+    draft him. Sleeper's dump knows the current status - exclude them up front
+    rather than discovering it after the pick is already in.
+    """
+    players = client.get_players("nfl")
+    out: set[str] = set()
+    for pid, p in players.items():
+        if p.get("position") == "DEF":
+            continue  # team defenses don't go on IR
+        if p.get("injury_status") == "IR" or p.get("status") == "Inactive":
+            out.add(pid)
+    return out
+
+
 def load_kickers(client: SleeperClient) -> list[Player]:
     """Kickers from Sleeper's player dump, best search rank first.
 
@@ -279,6 +297,7 @@ def main() -> int:
             draft = read.get_draft(args.draft)
             pool_players = remap_defenses(pool_players, load_defenses(read))
             pool_players = remap_skill_ids(pool_players, _sleeper_skill_ids(read))
+            unavailable = _sleeper_unavailable(read)
             kickers = load_kickers(read)
 
             num_teams = int(draft["settings"]["teams"])
@@ -286,7 +305,7 @@ def main() -> int:
             rounds = int(draft["settings"]["rounds"])
             positions = roster_positions_from_settings(draft["settings"])
             replacement = replacement_levels(pool_players, positions, num_teams)
-            all_players = pool_players + kickers
+            all_players = [p for p in pool_players + kickers if p.player_id not in unavailable]
             last_submitted: int | None = None
             undraftable: set[str] = set()
 
