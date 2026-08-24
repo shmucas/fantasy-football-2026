@@ -7,6 +7,7 @@ from ffb.draft.live import (
     choose_pick,
     is_my_turn,
     remap_defenses,
+    remap_skill_ids,
     room_for,
     roster_positions_from_settings,
     snake_slot,
@@ -132,4 +133,21 @@ def test_remap_defenses_swaps_ffc_ids_for_sleeper_team_ids():
     by_name = {p.name: p.player_id for p in out}
     assert by_name["Seattle Defense"] == "SEA"
     assert by_name["LA Rams Defense"] == "LAR"
+    assert by_name["Bijan Robinson"] == "9509"
+
+
+def test_remap_skill_ids_fixes_ffc_placeholder_ids():
+    pool = [
+        P("ffc_5196", "RB", 139, name="Kenny Gainwell"),
+        P("ffc_5453", "TE", 112, name="Chig Okonkwo"),
+        P("9509", "RB", 375, name="Bijan Robinson"),
+    ]
+    ids = {
+        ("kenny gainwell", "RB"): "7567",
+        ("chig okonkwo", "TE"): "8210",
+    }
+    out = remap_skill_ids(pool, ids)
+    by_name = {p.name: p.player_id for p in out}
+    assert by_name["Kenny Gainwell"] == "7567"
+    assert by_name["Chig Okonkwo"] == "8210"
     assert by_name["Bijan Robinson"] == "9509"

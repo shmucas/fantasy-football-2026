@@ -170,6 +170,24 @@ def load_defenses(client: SleeperClient) -> dict[tuple[str, str], str]:
     return out
 
 
+def _sleeper_skill_ids(client: SleeperClient) -> dict[tuple[str, str], str]:
+    """(normalized full name, position) -> Sleeper id, for non-DEF players.
+
+    A few skill players slip into the pool under FFC placeholder ids too
+    (Kenny Gainwell, Chig Okonkwo) when the offline pool build failed to match
+    them. Match on name + position against the dump to recover their real ids.
+    """
+    players = client.get_players("nfl")
+    out: dict[tuple[str, str], str] = {}
+    for p in players.values():
+        pos = p.get("position")
+        if pos in (None, "DEF"):
+            continue
+        name = f"{p.get('first_name') or ''} {p.get('last_name') or ''}".strip().lower()
+        out[(name, pos)] = p["player_id"]
+    return out
+
+
 def remap_defenses(pool: list[Player], defense_ids: dict[tuple[str, str], str]) -> list[Player]:
     """Swap ffc_* DEF ids for real Sleeper team ids, matched on name."""
     remapped = []
@@ -184,6 +202,21 @@ def remap_defenses(pool: list[Player], defense_ids: dict[tuple[str, str], str]) 
             sid = next(
                 (v for (c, _), v in defense_ids.items() if c == city), None
             )
+        if sid is not None:
+            remapped.append(replace(p, player_id=sid))
+        else:
+            remapped.append(p)  # leave it; the submit will be rejected and logged
+    return remapped
+
+
+def remap_skill_ids(pool: list[Player], skill_ids: dict[tuple[str, str], str]) -> list[Player]:
+    """Swap ffc_* skill-player ids for real Sleeper ids, matched on name + position."""
+    remapped = []
+    for p in pool:
+        if not p.player_id.startswith("ffc_"):
+            remapped.append(p)
+            continue
+        sid = skill_ids.get((p.name.strip().lower(), p.position))
         if sid is not None:
             remapped.append(replace(p, player_id=sid))
         else:
@@ -245,6 +278,7 @@ def main() -> int:
         with SleeperClient() as read:
             draft = read.get_draft(args.draft)
             pool_players = remap_defenses(pool_players, load_defenses(read))
+            pool_players = remap_skill_ids(pool_players, _sleeper_skill_ids(read))
             kickers = load_kickers(read)
 
             num_teams = int(draft["settings"]["teams"])
@@ -254,6 +288,7 @@ def main() -> int:
             replacement = replacement_levels(pool_players, positions, num_teams)
             all_players = pool_players + kickers
             last_submitted: int | None = None
+            undraftable: set[str] = set()
 
             print(
                 f"draft {args.draft}: {num_teams} teams, {rounds} rounds, "
@@ -269,7 +304,10 @@ def main() -> int:
                     p for p in all_players
                     if p.player_id in {pk.get("player_id") for pk in picks if pk.get("picked_by") == my_user_id}
                 ]
-                available = [p for p in all_players if p.player_id not in picked]
+                available = [
+                    p for p in all_players
+                    if p.player_id not in picked and p.player_id not in undraftable
+                ]
 
                 print(f"[{time.strftime('%H:%M:%S')}] status={status} picks={len(picks)}/{num_teams * rounds}")
 
@@ -322,7 +360,18 @@ def main() -> int:
                     print("  (writes disabled; would have submitted this pick)")
                     return 0
                 except SleeperAuthError as exc:
-                    # Out-of-turn or duplicate: don't crash, just wait and re-poll.
+                    msg = str(exc)
+                    if "not draftable" in msg or "draft_player_not_draftable" in msg:
+                        # The player id doesn't map to a draftable Sleeper player.
+                        # Drop it and pick the next-best instead of retrying it
+                        # forever (which just burns the pick clock).
+                        undraftable.add(choice.player_id)
+                        print(
+                            f"  !! {choice.name} is not draftable (bad id "
+                            f"{choice.player_id}); dropping it and picking the next-best"
+                        )
+                        continue
+                    # Anything else (out-of-turn, duplicate): wait and re-poll.
                     print(f"  !! Sleeper rejected the pick ({exc}); waiting and re-polling")
                     if args.once:
                         return 0
