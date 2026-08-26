@@ -93,6 +93,21 @@ and both look like silence if you only print results, so every league says
 which of the two happened and a failure keeps the exit code non-zero. Expect a
 non-zero exit while a league is undrafted. That is the mechanism working.
 
+### Offers waiting on me
+
+Trades other managers have sent me, valued by the same model, with an accept /
+reject / close call verdict.
+
+```bash
+uv run python -m ffb.inbox 1391439647548129280
+```
+
+Needs `SLEEPER_TOKEN`: proposed trades are invisible to Sleeper's public API.
+Without it there is no inbox to read, which is reported as "could not look" and
+the digest skips the section entirely rather than claiming there are no offers.
+An offer holding a K or a DEF gets no confident verdict either, since the pool
+cannot value those and zero would read as a free win.
+
 ### Injury watch
 
 Posts when someone on my roster changes injury status.
@@ -193,6 +208,7 @@ uv run python -m ffb.verify
 | `ffb/draft/analyze.py` | Compare saved point results |
 | `ffb/sim/season.py` | One simulated season to wins |
 | `ffb/sim/evaluate.py` | Compare picks by expected wins |
+| `ffb/inbox.py` | Value the trades sent to me |
 | `ffb/alerts/digest.py` | Daily digest |
 | `ffb/alerts/injuries.py` | Injury watch |
 | `ffb/alerts/diff.py` | What counts as an injury change |

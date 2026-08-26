@@ -24,7 +24,7 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ffb.draft.run_sims import load_players
 from ffb.draft.strategy import replacement_levels
@@ -59,6 +59,9 @@ class Assembly:
     valued_positions: set[str]
     slots: list[str]
     approx_pool: bool
+    # Pool players by Sleeper id, so a caller holding raw ids from a
+    # transaction can resolve them without loading the pool a second time.
+    by_id: dict[str, object] = field(default_factory=dict)
 
     @property
     def feasible_others(self) -> list[TeamRoster]:
@@ -125,6 +128,7 @@ def assemble(league_id: str, sleeper_user_id: str) -> Assembly:
         valued_positions=valued_positions,
         slots=modelled_slots(league.roster_positions, valued_positions),
         approx_pool=approx,
+        by_id=by_id,
     )
 
 

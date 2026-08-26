@@ -1,4 +1,4 @@
-"""Daily digest: run the trade finder and the start/sit advisor, post to Discord.
+"""Daily digest: trade ideas, offers waiting on me, and start/sit, posted to Discord.
 
 This is the scheduled job an autonomous agent (or a launchd timer) drives. It
 reads only. Nothing here touches Sleeper's write endpoints, and it deliberately
@@ -87,11 +87,30 @@ def _lineup_lines(result: dict) -> list[str]:
     return lines
 
 
+def _inbox_lines(report: dict) -> list[str]:
+    from ffb import inbox
+
+    league = report.get("league") or report.get("league_id") or "league"
+    if report.get("status") == inbox.STATUS_FAILED:
+        return [f"**{league}** - could not read the inbox: {report.get('reason', 'unknown')}"]
+    if report.get("status") == inbox.STATUS_EMPTY:
+        return [f"**{league}** - no trades are waiting on you."]
+
+    offers = report.get("offers") or []
+    lines = [f"**{league}** - {len(offers)} offer(s) waiting on you:"]
+    for offer in offers:
+        lines.extend(f"  {line}" for line in inbox.offer_lines(offer))
+    return lines
+
+
 def build(leagues: list[str], user_id: str, limit: int, week: int | None) -> tuple[str, bool]:
     """Returns the message and whether anything failed to evaluate."""
-    from ffb import cli_trades, lineup
+    from ffb import cli_trades, inbox, lineup
+
+    has_token = bool(os.getenv("SLEEPER_TOKEN", "").strip())
 
     trade_blocks: list[str] = []
+    inbox_blocks: list[str] = []
     lineup_blocks: list[str] = []
     failed = False
 
@@ -108,6 +127,20 @@ def build(leagues: list[str], user_id: str, limit: int, week: int | None) -> tup
                 failed = True
             trade_blocks.extend(_trade_lines(report, limit))
 
+        # Offers sent to me. Skipped entirely without a token: the inbox lives
+        # behind Sleeper's private GraphQL, and a digest that cannot see it is
+        # still a healthy digest, so this never sets `failed`.
+        if has_token:
+            try:
+                incoming = inbox.report_for(league_id, user_id)
+            except Exception as exc:
+                inbox_blocks.append(f"**{league_id}** - inbox errored: {exc}")
+                failed = True
+            else:
+                if incoming.get("status") == inbox.STATUS_FAILED:
+                    failed = True
+                inbox_blocks.extend(_inbox_lines(incoming))
+
         try:
             result = lineup.run(league_id, user_id, week, skip_injuries=False)
         except Exception as exc:
@@ -118,7 +151,10 @@ def build(leagues: list[str], user_id: str, limit: int, week: int | None) -> tup
                 failed = True
             lineup_blocks.extend(_lineup_lines(result))
 
-    parts = ["__**Trades**__", *trade_blocks, "", "__**Start / sit**__", *lineup_blocks]
+    parts = ["__**Trades**__", *trade_blocks]
+    if inbox_blocks:
+        parts += ["", "__**Offers waiting on you**__", *inbox_blocks]
+    parts += ["", "__**Start / sit**__", *lineup_blocks]
     if failed:
         parts.append("")
         parts.append("Something above could not be evaluated. That is not the same as nothing to do.")

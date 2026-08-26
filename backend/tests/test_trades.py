@@ -2,7 +2,12 @@
 
 from ffb.draft.strategy import Player
 from ffb.trades import (
+    VERDICT_ACCEPT,
+    VERDICT_CLOSE,
+    VERDICT_REJECT,
+    VERDICT_UNCLEAR,
     active_player_ids,
+    evaluate_offer,
     TeamRoster,
     find_trades,
     is_feasible,
@@ -264,3 +269,67 @@ def test_active_player_ids_handles_missing_and_null_keys():
     assert active_player_ids({"players": ["a"]}) == ["a"]
     assert active_player_ids({"players": None, "reserve": None}) == []
     assert active_player_ids({}) == []
+
+
+# -- incoming offers ------------------------------------------------------
+
+
+def evaluate(send, receive, unresolved=0, other=None):
+    me = team(1, legal_roster())
+    return evaluate_offer(
+        me,
+        send,
+        receive,
+        SLOTS,
+        REPLACEMENT,
+        VALUED_POSITIONS,
+        unresolved=unresolved,
+        other=other,
+    )
+
+
+def test_offer_that_upgrades_a_starter_is_an_accept():
+    mine = legal_roster()
+    worst_wr = [p for p in mine if p.position == "WR"][-1]
+    result = evaluate([worst_wr], [player("zz", "WR", 260.0)])
+
+    assert result.verdict == VERDICT_ACCEPT
+    assert result.my_surplus > 0
+
+
+def test_offer_that_downgrades_a_starter_is_a_reject():
+    mine = legal_roster()
+    best_wr = [p for p in mine if p.position == "WR"][0]
+    result = evaluate([best_wr], [player("zz", "WR", 90.0)])
+
+    assert result.verdict == VERDICT_REJECT
+    assert result.my_surplus < 0
+
+
+def test_a_wash_is_a_close_call_not_an_accept():
+    mine = legal_roster()
+    wr = [p for p in mine if p.position == "WR"][0]
+    result = evaluate([wr], [player("zz", "WR", wr.proj_points)])
+
+    assert result.verdict == VERDICT_CLOSE
+
+
+def test_an_unvalued_player_blocks_a_confident_verdict():
+    # K and DEF are worth zero to the pool, so a package holding one would read
+    # as a free win in whichever direction it moves.
+    mine = legal_roster()
+    wr = [p for p in mine if p.position == "WR"][0]
+    result = evaluate([wr], [], unresolved=1)
+
+    assert result.verdict == VERDICT_UNCLEAR
+    assert any("not in the pool" in note for note in result.notes)
+
+
+def test_the_other_side_is_valued_when_their_roster_is_given():
+    mine = legal_roster()
+    theirs = team(2, legal_roster(prefix="b"))
+    my_wr = [p for p in mine if p.position == "WR"][-1]
+    their_wr = [p for p in theirs.players if p.position == "WR"][-1]
+
+    result = evaluate([my_wr], [their_wr], other=theirs)
+    assert result.their_surplus is not None

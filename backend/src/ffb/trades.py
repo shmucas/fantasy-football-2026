@@ -305,3 +305,84 @@ def shopping_signal(transactions: list[dict]) -> dict[tuple[int, str], int]:
             key = (int(roster_id), str(player_id))
             counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+# -- incoming offers ------------------------------------------------------
+#
+# The mirror of find_trades: the package is already fixed, so there is no
+# search, only a verdict. Kept here so an offer someone sent me is scored by
+# exactly the same model that generates the ones I send.
+
+VERDICT_ACCEPT = "accept"
+VERDICT_REJECT = "reject"
+VERDICT_CLOSE = "close_call"
+VERDICT_UNCLEAR = "cannot_evaluate"
+
+
+@dataclass(frozen=True)
+class OfferVerdict:
+    """What one proposed trade does to my roster."""
+
+    my_surplus: float
+    their_surplus: float | None
+    verdict: str
+    notes: list[str] = field(default_factory=list)
+
+
+def evaluate_offer(
+    me: TeamRoster,
+    send: list[Player],
+    receive: list[Player],
+    roster_positions: list[str],
+    replacement: dict[str, float],
+    valued_positions: set[str],
+    unresolved: int = 0,
+    other: TeamRoster | None = None,
+) -> OfferVerdict:
+    """Score a package someone has already proposed to me.
+
+    `unresolved` is how many players in the offer the pool could not value at
+    all - K and DEF always land here. Those players are worth zero to the
+    model, which would read as a free win in whichever direction they move, so
+    any offer carrying one gets `cannot_evaluate` rather than a confident
+    number. That is the same rule the digest applies elsewhere: failing to look
+    is not the same as looking and finding nothing.
+
+    `other` is optional. With it we can also say what the offer does for the
+    manager who sent it, which is worth knowing before countering.
+    """
+    slots = modelled_slots(roster_positions, valued_positions)
+    notes: list[str] = []
+
+    if not is_feasible(me.players, me.unknown_count, slots, roster_positions):
+        return OfferVerdict(0.0, None, VERDICT_UNCLEAR, ["your roster does not resolve against the pool"])
+
+    before = roster_value(me.players, slots, replacement)
+    after_players = _swap(me.players, tuple(send), tuple(receive))
+    my_surplus = roster_value(after_players, slots, replacement) - before
+
+    if not is_feasible(after_players, me.unknown_count, slots, roster_positions):
+        notes.append("accepting this leaves a lineup that cannot be filed")
+
+    their_surplus = None
+    if other is not None and is_feasible(
+        other.players, other.unknown_count, slots, roster_positions
+    ):
+        their_before = roster_value(other.players, slots, replacement)
+        their_after = _swap(other.players, tuple(receive), tuple(send))
+        their_surplus = roster_value(their_after, slots, replacement) - their_before
+
+    if unresolved:
+        notes.append(
+            f"{unresolved} player(s) in this offer are not in the pool "
+            "(K and DEF never are), so the number below is incomplete"
+        )
+        return OfferVerdict(my_surplus, their_surplus, VERDICT_UNCLEAR, notes)
+
+    if my_surplus > MIN_SURPLUS:
+        verdict = VERDICT_ACCEPT
+    elif my_surplus < -MIN_SURPLUS:
+        verdict = VERDICT_REJECT
+    else:
+        verdict = VERDICT_CLOSE
+    return OfferVerdict(my_surplus, their_surplus, verdict, notes)
