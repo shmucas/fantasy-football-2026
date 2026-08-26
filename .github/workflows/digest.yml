@@ -76,4 +76,26 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FFB_SLEEPER_USER_ID: "1125887731814576128"
         run: |
-          uv run python -m ffb.alerts.digest --limit "${{ inputs.limit || '3' }}"
+          # The digest exits non-zero when a league could not be evaluated,
+          # which is deliberate: a job that cannot look must not report the
+          # same green as a job that looked and found nothing. On a schedule
+          # that means a permanent red X for a league that has not drafted
+          # yet, and a workflow that is always red is a workflow nobody reads.
+          #
+          # So the exit code alone is not the verdict here. Whether the digest
+          # reached Discord is, because that is the thing that actually has to
+          # happen. A run that posted but could not evaluate everything is a
+          # warning; a run that did not post is a failure, exit code or not.
+          set +e
+          uv run python -m ffb.alerts.digest --limit "${{ inputs.limit || '3' }}" 2>&1 | tee digest.out
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if ! grep -q "(posted to Discord)" digest.out; then
+            echo "::error::The digest did not reach Discord (exit $status)."
+            exit "${status:-1}"
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Posted, but at least one league could not be evaluated. See the log."
+          fi
