@@ -10,7 +10,7 @@
 
 set -uo pipefail
 
-REPO="/Users/lucasferreira/Desktop/Projects/ffb26"
+REPO="$HOME/Projects/ffb26"
 BACKEND="$REPO/backend"
 LOG_DIR="$HOME/Library/Logs/ffb"
 LOG="$LOG_DIR/digest.log"
@@ -33,13 +33,27 @@ fi
 cd "$BACKEND" || { log "FATAL: cannot cd to $BACKEND"; exit 1; }
 
 # Load .env without printing it. `set -a` exports everything defined inside.
-if [ -f "$BACKEND/.env" ]; then
+#
+# Secrets live outside the repo. This job ran for six days without posting
+# because the repo then sat under ~/Desktop, which macOS privacy protection
+# (TCC) puts off limits to an unattended job: sourcing backend/.env failed
+# with "Operation not permitted", so DISCORD_WEBHOOK_URL was never set. The
+# repo has since moved, but keeping the secrets at a stable path outside it
+# means a future relocation cannot break the schedule the same way.
+ENV_FILE="$HOME/.local/ffb/.env"
+[ -f "$ENV_FILE" ] || ENV_FILE="$BACKEND/.env"
+
+if [ -r "$ENV_FILE" ]; then
     set -a
     # shellcheck disable=SC1091
-    . "$BACKEND/.env"
+    . "$ENV_FILE"
     set +a
 else
-    log "WARN: no backend/.env, running without a token or webhook"
+    log "WARN: no readable env file, running without a token or webhook"
+fi
+
+if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+    log "WARN: DISCORD_WEBHOOK_URL is not set, the digest will not be posted"
 fi
 
 # Belt and braces. The digest cannot write to Sleeper regardless, but an

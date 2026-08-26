@@ -1,0 +1,79 @@
+# Daily digest: trade ideas and start/sit advice, posted to Discord.
+#
+# This runs here rather than on the laptop because a laptop schedule only
+# fires when the lid is open. The job that used to do this via launchd went
+# six days without posting and looked healthy the whole time.
+#
+# It reads only. Every mutation in ffb.sleeper_auth is gated behind
+# FFB_ALLOW_WRITES, which is never set here, so the worst a bad run can do is
+# describe a move it will not make. That is also why SLEEPER_TOKEN is
+# deliberately not a secret on this repo: the digest talks to Sleeper's public
+# API, and an account token that can write a roster has no business on a
+# public repository's runners.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   DISCORD_WEBHOOK_URL - the Discord incoming webhook to post into
+#   DATABASE_URL        - the same hosted Postgres the app uses
+
+name: Digest
+
+on:
+  schedule:
+    # Times are UTC and GitHub does not do daylight saving, so each slot is
+    # listed for both EDT and EST rather than drifting an hour in November.
+    #
+    # Morning: overnight injury news and waiver results, before the day gets away.
+    - cron: "7 12 * * *"
+    - cron: "7 13 * * *"
+    # Evening: practice reports, and a trade can sit in someone's inbox overnight.
+    - cron: "23 22 * * *"
+    - cron: "23 23 * * *"
+    # Sunday late morning: inactives drop about 90 minutes before the 1pm ET
+    # window. This is the run that catches a starter who has just been ruled
+    # out, which is the whole point of the start/sit half.
+    - cron: "15 15 * * 0"
+    - cron: "15 16 * * 0"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "How many trade ideas to show per league"
+        type: string
+        default: "3"
+
+# Two digests posting at once would just be noise.
+concurrency:
+  group: digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          test -n "$DATABASE_URL" || { echo "DATABASE_URL secret is not set"; exit 1; }
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install
+        working-directory: backend
+        run: uv sync
+
+      - name: Run digest
+        working-directory: backend
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FFB_SLEEPER_USER_ID: "1125887731814576128"
+        run: |
+          uv run python -m ffb.alerts.digest --limit "${{ inputs.limit || '3' }}"

@@ -241,6 +241,74 @@ other mutation). The picks list is eventually consistent, so the bot trusts
 the mutation's own response as confirmation and remembers the last pick number
 it submitted rather than re-submitting on a stale poll.
 
+## Daily digest
+
+Trade ideas and start/sit advice for every league, posted to Discord.
+
+```bash
+cd backend
+uv run python -m ffb.alerts.digest --limit 3
+```
+
+It reads only. The reporting rule that matters: a tool failing to evaluate is
+not the same as finding nothing, and both look like silence if you only print
+results. Every league says which of the two happened, and a failure keeps the
+exit code non-zero so a scheduled job cannot look healthy while telling you
+nothing. Expect a non-zero exit while a league is undrafted - that is the
+mechanism working, not a bug.
+
+### On a schedule (GitHub Actions)
+
+`.github/workflows/digest.yml` runs it twice a day, plus Sunday late morning to
+catch inactives before the 1pm ET window. It needs the same two repository
+secrets as the injury watch, `DISCORD_WEBHOOK_URL` and `DATABASE_URL`.
+
+This runs on Actions rather than on a laptop on purpose. A laptop schedule only
+fires when the lid is open, and the launchd job that used to do this went six
+days without posting while looking healthy: the repo then lived under
+`~/Desktop`, which macOS privacy protection (TCC) puts off limits to unattended
+jobs, so sourcing `backend/.env` failed with "Operation not permitted" and the
+webhook was simply never set. Two lessons are baked into the layout now - the
+repo lives outside `~/Desktop`, and anything scheduled reads secrets from a
+stable path outside the repo.
+
+## Roster moves from chat
+
+`ffb/assistant.py` lets a chat bot make roster moves without ever being able to
+make one unsupervised. Two rules have to hold at once: the scheduled digest
+must never write, and a move asked for in conversation should actually happen
+rather than being described forever.
+
+Both hold if writes are only reachable through a second, separate command
+carrying a code that the first one printed:
+
+```bash
+cd backend
+uv run python -m ffb.assistant fill-bench --league <league_id>
+# -> prints the plan and `Reply confirm a1b2`
+uv run python -m ffb.assistant lineup --league <league_id>
+uv run python -m ffb.assistant confirm a1b2
+uv run python -m ffb.assistant show      # what is waiting
+uv run python -m ffb.assistant cancel    # discard it
+```
+
+`confirm` is the only place in the package that sets `FFB_ALLOW_WRITES`, and it
+does so in its own process memory for one mutation. It is never written to a
+`.env` file or a plist, so no scheduled job can inherit the ability to write by
+accident.
+
+A plan expires after ten minutes. An approval given ten minutes ago was for a
+roster state that may no longer exist, and a stale confirmation is exactly how
+you drop the wrong player. `ALLOWED_OPERATIONS` is re-checked at confirm time,
+so widening what the bot may do is a deliberate edit rather than something a
+prompt can talk an agent into.
+
+Two deliberate refusals: the lineup path will not swap in a player who is not
+legal in the exact slot the benched player vacates - it says so and leaves it
+to you rather than setting an illegal lineup. K and DEF are never touched,
+because the player pool has no rows whose ids match them, so any change there
+would be a guess.
+
 ## How the math works
 
 ### Player value: VORP
@@ -343,6 +411,11 @@ with:
 | `ffb/alerts/injuries.py` | Injury watch: diff the NFL report against your rosters, post changes |
 | `ffb/alerts/diff.py` | What counts as an injury change (pure, unit-tested) |
 | `ffb/alerts/discord.py` | Post to a Discord incoming webhook |
+| `ffb/alerts/digest.py` | Daily digest: trade ideas + start/sit, posted to Discord |
+| `ffb/lineup.py` | Start/sit advice: who cannot play, and the best legal lineup |
+| `ffb/trades.py` | Trade finder: what helps both sides |
+| `ffb/sleeper_auth.py` | The private GraphQL write client. Dry-run unless `FFB_ALLOW_WRITES=1` |
+| `ffb/assistant.py` | Propose a roster move, execute it only after a typed confirmation |
 
 ## Injury watch
 
