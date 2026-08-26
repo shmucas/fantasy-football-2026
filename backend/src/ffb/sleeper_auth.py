@@ -320,25 +320,30 @@ class SleeperAuthClient:
         return self._trade_action("cancel_trade", league_id, transaction_id, leg)
 
     def set_starters(
-        self, league_id: str, roster_id: int, starters: list[str], leg: int | None = None
+        self, league_id: str, roster_id: int, starters: list[str]
     ) -> dict | PlannedWrite:
         """Set the starting lineup. Order has to line up with the league's
-        roster_positions, minus the bench and IR slots."""
+        roster_positions, minus the bench and IR slots.
+
+        The mutation is ``roster_update_starters`` (there is no
+        ``update_roster_starters`` in the schema), and it takes no week/leg
+        argument - it simply sets the roster's starters for the upcoming
+        matchup.
+        """
         query = """
-        mutation update_roster_starters(
-          $league_id: Snowflake!, $roster_id: Int!, $starters: [String]!, $leg: Int
+        mutation roster_update_starters(
+          $league_id: Snowflake!, $roster_id: Int!, $starters: [String]
         ) {
-          update_roster_starters(
+          roster_update_starters(
             league_id: $league_id, roster_id: $roster_id,
-            starters: $starters, leg: $leg
+            starters: $starters
           ) { roster_id starters players reserve taxi }
         }
         """
-        return self._mutate("update_roster_starters", query, {
+        return self._mutate("roster_update_starters", query, {
             "league_id": league_id,
             "roster_id": roster_id,
             "starters": starters,
-            "leg": leg,
         })
 
     def submit_waiver_claim(

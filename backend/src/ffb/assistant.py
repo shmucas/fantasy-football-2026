@@ -237,7 +237,7 @@ def propose_lineup(league_key: str, sleeper_user_id: str, week: int | None) -> P
         league_id=league.league_id,
         league_name=league.name,
         roster_id=int(mine["roster_id"]),
-        kwargs={"starters": new, "leg": week},
+        kwargs={"starters": new},
         summary=[
             f"Lineup change, +{advice['points_gained']:.1f} projected points:",
             *lines,
