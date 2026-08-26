@@ -128,13 +128,17 @@ def test_explicit_dry_run_false_still_needs_the_env_switch(monkeypatch):
         client.propose_trade("L1", adds=[("p1", 2)], drops=[("p2", 3)])
 
 
-def test_waiver_claim_shapes_adds_and_drops_as_roster_maps(monkeypatch):
+def test_waiver_claim_shapes_adds_and_drops_as_parallel_lists(monkeypatch):
     monkeypatch.delenv("FFB_ALLOW_WRITES", raising=False)
     client = SleeperAuthClient(token=make_token())
     planned = client.submit_waiver_claim("L1", 9, "add1", drop_player_id="drop1", faab_bid=12)
-    assert planned.variables["adds"] == {"add1": 9}
-    assert planned.variables["drops"] == {"drop1": 9}
-    assert planned.variables["waiver_budget"] == 12
+    assert planned.operation == "submit_waiver_claim"
+    assert planned.variables["k_adds"] == ["add1"]
+    assert planned.variables["v_adds"] == [9]
+    assert planned.variables["k_drops"] == ["drop1"]
+    assert planned.variables["v_drops"] == [9]
+    assert planned.variables["k_settings"] == ["waiver_budget"]
+    assert planned.variables["v_settings"] == [12]
 
 
 def test_dry_run_description_is_readable():

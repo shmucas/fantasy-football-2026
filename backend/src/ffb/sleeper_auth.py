@@ -350,24 +350,33 @@ class SleeperAuthClient:
         faab_bid: int = 0,
     ) -> dict | PlannedWrite:
         """Claim a player off waivers. `faab_bid` is in dollars, 0 in a league
-        that runs on priority instead of a budget."""
+        that runs on priority instead of a budget.
+
+        The claim is add-only here (dropping is a separate decision made when
+        the claim wins); pass `drop_player_id` to pair a drop with the add.
+        """
         query = """
-        mutation create_waiver_claim(
-          $league_id: Snowflake!, $roster_id: Int!,
-          $adds: JSON, $drops: JSON, $waiver_budget: Int
+        mutation submit_waiver_claim(
+          $league_id: Snowflake!,
+          $k_adds: [String], $v_adds: [Int], $k_drops: [String], $v_drops: [Int],
+          $k_settings: [String], $v_settings: [Int]
         ) {
-          create_waiver_claim(
-            league_id: $league_id, roster_id: $roster_id,
-            adds: $adds, drops: $drops, waiver_budget: $waiver_budget
+          submit_waiver_claim(
+            league_id: $league_id,
+            k_adds: $k_adds, v_adds: $v_adds, k_drops: $k_drops, v_drops: $v_drops,
+            k_settings: $k_settings, v_settings: $v_settings
           ) { transaction_id status type created adds drops settings }
         }
         """
-        return self._mutate("create_waiver_claim", query, {
+        drops = [drop_player_id] if drop_player_id else []
+        return self._mutate("submit_waiver_claim", query, {
             "league_id": league_id,
-            "roster_id": roster_id,
-            "adds": {add_player_id: roster_id},
-            "drops": {drop_player_id: roster_id} if drop_player_id else {},
-            "waiver_budget": int(faab_bid),
+            "k_adds": [add_player_id],
+            "v_adds": [roster_id],
+            "k_drops": drops,
+            "v_drops": [roster_id] * len(drops),
+            "k_settings": ["waiver_budget"],
+            "v_settings": [int(faab_bid)],
         })
 
     def make_draft_pick(
