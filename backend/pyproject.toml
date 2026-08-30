@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115.0",
     "httpx>=0.28.1",
     "nflreadpy>=0.1.5",
     "numpy>=2.5.1",
@@ -18,13 +17,11 @@ dependencies = [
     "psycopg[binary]>=3.2.0",
     "pyyaml>=6.0.3",
     "sqlalchemy>=2.0.51",
-    "uvicorn>=0.34.0",
 ]
 
 [project.scripts]
 ffb = "ffb:main"
 
-# Dev only, so it never reaches the Vercel function (see requirements.txt).
 [dependency-groups]
 dev = ["pytest>=8.0"]
 

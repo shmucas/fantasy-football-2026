@@ -9,10 +9,9 @@ layer:
 Read-only. Nothing here proposes or sends a trade.
 
 The league assembly (fetch rosters, resolve them against the prebuilt pool,
-compute replacement levels once over the whole pool) is imported from
-ffb.api rather than copied, so the CLI and the web app cannot drift apart on
-slot normalization - which is exactly where a roster wrongly reads as
-infeasible.
+compute replacement levels once over the whole pool) uses ffb.pool for league
+lookup and slot normalization rather than copying that logic, which is exactly
+where a roster wrongly reads as infeasible.
 
 An empty result is a legitimate answer, so this reports which kind of empty it
 is: how many opposing rosters were actually evaluated and how many were
@@ -82,12 +81,12 @@ def resolve_league_id(league: str) -> str:
 
 def assemble(league_id: str, sleeper_user_id: str) -> Assembly:
     """Fetch and value one league's rosters. Raises SystemExit on user error."""
-    # Imported lazily: ffb.api pulls in FastAPI and the sim stack, which a
-    # cron job should not pay for until it is actually going to run.
-    from ffb.api import _get_league, _pool_for
+    # Imported lazily: this pulls in the pool loader, which a cron job should
+    # not pay for until it is actually going to run.
+    from ffb.pool import get_league, pool_for
 
-    league = _get_league(league_id)
-    pool_path, approx = _pool_for(league.ppr, league.num_teams)
+    league = get_league(league_id)
+    pool_path, approx = pool_for(league.ppr, league.num_teams)
     if pool_path is None:
         raise SystemExit("No player pool has been built yet.")
 

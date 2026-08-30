@@ -33,10 +33,10 @@ Availability signals:
 
   - Bye weeks come from the committed nflverse schedule snapshot in data/nfl/,
     joined to a player through the committed sleeper_id -> team snapshot. No
-    nflreadpy or polars, so this stays on the Vercel Function side of the line.
+    nflreadpy or polars needed, so this runs anywhere.
   - Injury status is not in the pools and not on a Sleeper roster. The only
     source is Sleeper's /players/nfl dump, which is roughly 5MB, so it is
-    optional here: the CLI fetches it, the API endpoint does not and says so.
+    optional here: callers that skip it are told the check was skipped.
 """
 
 import argparse
@@ -348,13 +348,13 @@ def _injury_status(client) -> dict[str, str]:
 
 
 def run(league_key: str, sleeper_user_id: str, week: int | None, skip_injuries: bool) -> dict:
-    from ffb.api import _get_league, _pool_for
+    from ffb.pool import get_league, pool_for
     from ffb.draft.run_sims import load_players
     from ffb.nfldata.ids import sleeper_team_lookup
     from ffb.sleeper_client import SleeperClient
 
-    league = _get_league(league_key)
-    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    league = get_league(league_key)
+    pool_path = pool_for(league.ppr, league.num_teams)[0]
     if pool_path is None:
         return {"status": "cannot_evaluate", "reason": "No player pool has been built yet"}
 

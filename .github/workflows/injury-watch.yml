@@ -1,9 +1,8 @@
 # Injury watch: diff the NFL injury report against what we last announced and
 # post the changes to Discord.
 #
-# This cannot be a Vercel Cron. The job needs nflreadpy and polars, which are
-# deliberately kept out of the serverless bundle (see CLAUDE.md), so it runs
-# here instead.
+# It runs here rather than on the laptop because a laptop schedule only fires
+# when the lid is open.
 #
 # Required repository secrets (Settings > Secrets and variables > Actions):
 #   DISCORD_WEBHOOK_URL - the Discord incoming webhook to post into

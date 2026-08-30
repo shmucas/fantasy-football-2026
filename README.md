@@ -2,29 +2,22 @@
 
 Tools to draft and manage my fantasy football teams on Sleeper.
 
-Enter a Sleeper username and the app loads every league that user is in. It
-drafts for me, tells me who to start, finds trades, watches for injuries, and
-posts what it finds to Discord.
+It drafts for me, tells me who to start, finds trades, values the offers other
+managers send me, watches for injuries, and posts what it finds to Discord.
 
-- `backend/` - Python. Sleeper data, projections, simulations, alerts.
-- `frontend/` - React app. Four tabs per league: Draft, Waivers, Schedule,
-  Simulations. No login, just type your Sleeper username.
+Everything runs from the CLI or from a scheduled GitHub Actions job. There is
+no website: a React frontend and a Vercel Function used to serve one, and both
+were removed once it was clear nobody used them.
 
 Two leagues are named in `ffb/leagues.py`, but only to build draft pools
 offline: **Miller League** (14 teams, half PPR) and **FANTASYFOOTBALLMAXXING**
 (10 teams, full PPR). A league with no exact pool reuses the closest one and
-the app labels those projections approximate.
+those projections are labelled approximate.
 
 ## Setup
 
 ```bash
 cd backend && uv sync --group dev
-
-# API
-uv run uvicorn ffb.api:app --reload --port 8010
-
-# Frontend, from frontend/
-npm install && npm run dev
 ```
 
 Secrets live in `~/.local/ffb/.env`, not in the repo. Scheduled jobs read that
@@ -47,7 +40,7 @@ learned off past NFL data, and how much each player swings week to week.
 uv run python -m ffb.nfldata.build --league maxxing_college
 ```
 
-Output: `backend/data/pools/<league_key>.csv`. Committed, so the API has data
+Output: `backend/data/pools/<league_key>.csv`. Committed, so a fresh checkout has data
 on first boot. Rebuilding means committing the new CSV.
 
 ### Simulate the draft
@@ -209,6 +202,7 @@ uv run python -m ffb.verify
 | `ffb/sim/season.py` | One simulated season to wins |
 | `ffb/sim/evaluate.py` | Compare picks by expected wins |
 | `ffb/inbox.py` | Value the trades sent to me |
+| `ffb/pool.py` | League lookup and draft-pool selection |
 | `ffb/alerts/digest.py` | Daily digest |
 | `ffb/alerts/injuries.py` | Injury watch |
 | `ffb/alerts/diff.py` | What counts as an injury change |
@@ -218,5 +212,4 @@ uv run python -m ffb.verify
 
 - [docs/how-it-works.md](docs/how-it-works.md) - VORP, the opponent model, and
   the season simulator.
-- [docs/deploying.md](docs/deploying.md) - Render for the backend, Vercel for
-  the frontend, and why the two have different dependency lists.
+

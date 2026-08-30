@@ -120,12 +120,12 @@ def clear_plan() -> None:
 
 def _context(league_key: str, sleeper_user_id: str):
     """Roster, league and the scored player pool, the way lineup.run gets them."""
-    from ffb.api import _get_league, _pool_for
+    from ffb.pool import get_league, pool_for
     from ffb.draft.run_sims import load_players
     from ffb.sleeper_client import SleeperClient
 
-    league = _get_league(league_key)
-    pool_path = _pool_for(league.ppr, league.num_teams)[0]
+    league = get_league(league_key)
+    pool_path = pool_for(league.ppr, league.num_teams)[0]
     if pool_path is None:
         raise PlanError("No player pool has been built yet.")
 

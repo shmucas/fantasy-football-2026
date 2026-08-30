@@ -1,21 +1,28 @@
 # ffb26
 
-## Deployment shape
+## Shape
 
-The app ships to Vercel as a Vite frontend (`frontend/`, built by
-`vercel.json`'s `buildCommand`) plus a single Python Function at
-`api/index.py`, which pulls in `backend/**` via `includeFiles`.
+There is no deployment and no website. This is a Python package in `backend/`
+plus two scheduled GitHub Actions workflows that post to Discord:
 
-The Function bundle deliberately excludes the heavy data dependencies
-(nflreadpy, polars) to stay under the size limit. `.vercelignore` keeps
-virtualenvs, caches, and local data out of it for the same reason.
+- `.github/workflows/digest.yml` - trade ideas, offers waiting on me, start/sit
+- `.github/workflows/injury-watch.yml` - injury status changes
+
+Everything else is run by hand from the CLI (`python -m ffb.cli_trades`,
+`ffb.inbox`, `ffb.alerts.digest`).
+
+A Vite frontend and a Vercel Python Function used to serve this. Both were
+removed: the site was a demo, not something anyone used. `ffb.pool` holds the
+league lookup and pool selection the CLI still needs from that layer.
 
 ## What this means for new work
 
-Anything that needs nflreadpy or polars cannot run as a Vercel Function. Plan
-it as a scheduled job outside the deployment (CI or a local/cron run), the way
-the Discord injury watcher (`ffb.alerts.injuries`) already works.
+New capabilities belong as a CLI module plus, if it needs to reach you, a
+section in the digest. Do not add an HTTP layer back without a reason to.
 
-Env vars for those jobs, such as `DISCORD_WEBHOOK_URL`, belong wherever the job
-runs, not only in the Vercel project settings. `backend/.env` covers local runs
-and is gitignored.
+Jobs run on GitHub Actions runners, so their env vars are repository secrets,
+not a hosting provider's settings. `backend/.env` covers local runs and is
+gitignored.
+
+Writes to Sleeper stay gated behind `FFB_ALLOW_WRITES`, which is deliberately
+never set in CI.
