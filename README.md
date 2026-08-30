@@ -73,18 +73,36 @@ nothing drafts a defense in round 3 faster than a naive max-value picker.
 Defenses are also remapped to real Sleeper ids, since the pool stores them
 under placeholder ids that Sleeper rejects.
 
-### Daily digest
+### Digest
 
-Trade ideas and start/sit advice for every league, posted to Discord.
+Trade ideas, offers waiting on me, and start/sit, posted to Discord.
 
 ```bash
 uv run python -m ffb.alerts.digest --limit 3
+uv run python -m ffb.alerts.digest --sections lineup --dry-run
 ```
 
 It reads only. A tool failing to evaluate is not the same as finding nothing,
 and both look like silence if you only print results, so every league says
 which of the two happened and a failure keeps the exit code non-zero. Expect a
 non-zero exit while a league is undrafted. That is the mechanism working.
+
+**It only speaks when something changed.** Each section is fingerprinted by
+what it names - which trade, which player - and a run that would repeat itself
+posts nothing at all. Fingerprints exclude projected points, since those drift
+a fraction between runs without the advice changing.
+
+Sections run on separate schedules because they move at different speeds:
+
+| Section | When | Why |
+| --- | --- | --- |
+| `trades` | Wed morning | waivers have processed, so rosters just moved |
+| `lineup` | Thu evening, Sun late morning | before TNF locks, and before the 1pm ET window |
+| `inbox` | with either | someone else's offer is on their clock, not yours |
+
+Sunday also passes `--force`, so it posts even when nothing changed. That is
+deliberate: dedupe makes silence ambiguous, and one guaranteed post a week
+means two quiet weeks is a broken job rather than a calm one.
 
 ### Offers waiting on me
 
@@ -203,7 +221,8 @@ uv run python -m ffb.verify
 | `ffb/sim/evaluate.py` | Compare picks by expected wins |
 | `ffb/inbox.py` | Value the trades sent to me |
 | `ffb/pool.py` | League lookup and draft-pool selection |
-| `ffb/alerts/digest.py` | Daily digest |
+| `ffb/alerts/digest.py` | The digest, and which sections to run |
+| `ffb/alerts/state.py` | What it said last time, so it can stay quiet |
 | `ffb/alerts/injuries.py` | Injury watch |
 | `ffb/alerts/diff.py` | What counts as an injury change |
 | `ffb/alerts/discord.py` | Post to a Discord webhook |

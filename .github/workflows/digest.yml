@@ -17,20 +17,25 @@
 
 name: Digest
 
+# Each section runs on its own clock, because they move at different speeds.
+# This used to fire three times a day with everything in it, which meant the
+# same trade ideas landed in Discord ~20 times a week until a roster changed.
+#
+# Times are UTC and GitHub does not do daylight saving, so each slot is listed
+# for both EDT and EST rather than drifting an hour in November.
 on:
   schedule:
-    # Times are UTC and GitHub does not do daylight saving, so each slot is
-    # listed for both EDT and EST rather than drifting an hour in November.
-    #
-    # Morning: overnight injury news and waiver results, before the day gets away.
-    - cron: "7 12 * * *"
-    - cron: "7 13 * * *"
-    # Evening: practice reports, and a trade can sit in someone's inbox overnight.
-    - cron: "23 22 * * *"
-    - cron: "23 23 * * *"
+    # Wednesday morning: waiver claims have processed overnight, so rosters
+    # have just moved. That is the only time trade ideas actually change.
+    - cron: "7 12 * * 3"
+    - cron: "7 13 * * 3"
+    # Thursday evening: last look at the lineup before TNF locks.
+    - cron: "23 22 * * 4"
+    - cron: "23 23 * * 4"
     # Sunday late morning: inactives drop about 90 minutes before the 1pm ET
     # window. This is the run that catches a starter who has just been ruled
-    # out, which is the whole point of the start/sit half.
+    # out, which is the whole point of the start/sit half. It is also the
+    # weekly heartbeat, so it posts whether or not anything changed.
     - cron: "15 15 * * 0"
     - cron: "15 16 * * 0"
   workflow_dispatch:
@@ -39,6 +44,14 @@ on:
         description: "How many trade ideas to show per league"
         type: string
         default: "3"
+      sections:
+        description: "Sections to run: trades, inbox, lineup"
+        type: string
+        default: "trades,inbox,lineup"
+      force:
+        description: "Post even if nothing changed"
+        type: boolean
+        default: false
 
 # Two digests posting at once would just be noise.
 concurrency:
@@ -76,20 +89,40 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FFB_SLEEPER_USER_ID: "1125887731814576128"
         run: |
+          # Which sections this run cares about, chosen by the schedule that
+          # woke it. A manual run says so explicitly.
+          case "${{ github.event.schedule }}" in
+            "7 12 * * 3"|"7 13 * * 3")   sections="trades,inbox"; force="" ;;
+            "23 22 * * 4"|"23 23 * * 4") sections="lineup,inbox";  force="" ;;
+            "15 15 * * 0"|"15 16 * * 0") sections="lineup,inbox";  force="--force" ;;
+            *) sections="${{ inputs.sections || 'trades,inbox,lineup' }}"
+               force="${{ inputs.force && '--force' || '' }}" ;;
+          esac
+
           # The digest exits non-zero when a league could not be evaluated,
           # which is deliberate: a job that cannot look must not report the
           # same green as a job that looked and found nothing. On a schedule
           # that means a permanent red X for a league that has not drafted
           # yet, and a workflow that is always red is a workflow nobody reads.
           #
-          # So the exit code alone is not the verdict here. Whether the digest
-          # reached Discord is, because that is the thing that actually has to
-          # happen. A run that posted but could not evaluate everything is a
-          # warning; a run that did not post is a failure, exit code or not.
+          # So the exit code alone is not the verdict here. What matters is that
+          # the digest reached a decision: it either posted, or it deliberately
+          # stayed quiet because nothing changed. Anything else is a failure.
+          #
+          # That second case is new and is why this check is not just a grep
+          # for "posted": most runs now have nothing to say, and a silent run
+          # is the mechanism working rather than a broken job.
           set +e
-          uv run python -m ffb.alerts.digest --limit "${{ inputs.limit || '3' }}" 2>&1 | tee digest.out
+          uv run python -m ffb.alerts.digest \
+            --limit "${{ inputs.limit || '3' }}" \
+            --sections "$sections" $force 2>&1 | tee digest.out
           status=${PIPESTATUS[0]}
           set -e
+
+          if grep -q "(not posted: nothing changed" digest.out; then
+            echo "Nothing changed since the last run, so nothing was posted."
+            exit 0
+          fi
 
           if ! grep -q "(posted to Discord)" digest.out; then
             echo "::error::The digest did not reach Discord (exit $status)."

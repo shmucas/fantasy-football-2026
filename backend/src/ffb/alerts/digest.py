@@ -1,4 +1,4 @@
-"""Daily digest: trade ideas, offers waiting on me, and start/sit, posted to Discord.
+"""Digest: trade ideas, offers waiting on me, and start/sit, posted to Discord.
 
 This is the scheduled job an autonomous agent (or a launchd timer) drives. It
 reads only. Nothing here touches Sleeper's write endpoints, and it deliberately
@@ -9,12 +9,29 @@ The reporting rule that matters: a tool failing to evaluate is not the same as
 finding nothing, and both look like silence if you only print results. Every
 league reports which of the two happened, and a failure keeps the exit code
 non-zero so a cron job cannot look healthy while telling you nothing.
+
+Two rules keep it from becoming noise, which is what it was when every run
+posted everything:
+
+  - Sections are chosen per run with --sections, because they move on
+    different clocks. Trade ideas change when rosters do, roughly twice a
+    week; a lineup matters in the hours before kickoff.
+  - A section that would say the same thing it said last time says nothing.
+    ffb.alerts.state holds the fingerprints. When every section is unchanged
+    the job posts nothing at all rather than posting an empty digest.
+
+That makes silence ambiguous, which this project otherwise refuses to allow.
+The answer is --force: one scheduled run a week posts regardless, so two quiet
+weeks means something is broken rather than calm.
 """
 
 import argparse
 import os
 
 from ffb.alerts import discord
+
+# The sections a run can include, in the order they appear in the message.
+ALL_SECTIONS = ("trades", "inbox", "lineup")
 
 # Leagues to report on, as Sleeper ids. Overridable so a second season or a
 # borrowed league does not need a code change.
@@ -103,62 +120,118 @@ def _inbox_lines(report: dict) -> list[str]:
     return lines
 
 
-def build(leagues: list[str], user_id: str, limit: int, week: int | None) -> tuple[str, bool]:
-    """Returns the message and whether anything failed to evaluate."""
+def build(
+    leagues: list[str],
+    user_id: str,
+    limit: int,
+    week: int | None,
+    sections: tuple[str, ...] = ALL_SECTIONS,
+) -> tuple[dict[str, list[str]], dict[tuple[str, str], str], bool]:
+    """Gather the requested sections.
+
+    Returns the message blocks by section, the fingerprint of each
+    (league, section) answer, and whether anything failed to evaluate.
+    Deciding what to post is `select` below: this only looks.
+    """
     from ffb import cli_trades, inbox, lineup
+    from ffb.alerts import state
 
     has_token = bool(os.getenv("SLEEPER_TOKEN", "").strip())
 
-    trade_blocks: list[str] = []
-    inbox_blocks: list[str] = []
-    lineup_blocks: list[str] = []
-    failed = False
+    blocks: dict[str, list[str]] = {name: [] for name in ALL_SECTIONS}
+    prints: dict[tuple[str, str], str] = {}
+    failures: list[str] = []
 
     for league_id in leagues:
-        try:
-            report = cli_trades.report_for(league_id, user_id, limit)
-        except Exception as exc:
-            # A league that blows up should not take the other league's report
-            # down with it, but it must not be silently dropped either.
-            trade_blocks.append(f"**{league_id}** - trade finder errored: {exc}")
-            failed = True
-        else:
-            if report.get("status") in TRADE_FAILURE_STATUSES:
-                failed = True
-            trade_blocks.extend(_trade_lines(report, limit))
+        if "trades" in sections:
+            try:
+                report = cli_trades.report_for(league_id, user_id, limit)
+            except Exception as exc:
+                # A league that blows up should not take the other league's
+                # report down with it, but it must not be silently dropped.
+                blocks["trades"].append(f"**{league_id}** - trade finder errored: {exc}")
+                failures.append(f"{league_id}:trades:{exc}")
+            else:
+                if report.get("status") in TRADE_FAILURE_STATUSES:
+                    failures.append(f"{league_id}:trades:{report.get('status')}")
+                blocks["trades"].extend(_trade_lines(report, limit))
+                prints[(league_id, state.TRADES)] = state.fingerprint(
+                    state.trades_identity(report)
+                )
 
         # Offers sent to me. Skipped entirely without a token: the inbox lives
         # behind Sleeper's private GraphQL, and a digest that cannot see it is
-        # still a healthy digest, so this never sets `failed`.
-        if has_token:
+        # still a healthy digest, so this never counts as a failure.
+        if "inbox" in sections and has_token:
             try:
                 incoming = inbox.report_for(league_id, user_id)
             except Exception as exc:
-                inbox_blocks.append(f"**{league_id}** - inbox errored: {exc}")
-                failed = True
+                blocks["inbox"].append(f"**{league_id}** - inbox errored: {exc}")
+                failures.append(f"{league_id}:inbox:{exc}")
             else:
                 if incoming.get("status") == inbox.STATUS_FAILED:
-                    failed = True
-                inbox_blocks.extend(_inbox_lines(incoming))
+                    failures.append(f"{league_id}:inbox:{incoming.get('reason')}")
+                blocks["inbox"].extend(_inbox_lines(incoming))
+                prints[(league_id, state.INBOX)] = state.fingerprint(
+                    state.inbox_identity(incoming)
+                )
 
-        try:
-            result = lineup.run(league_id, user_id, week, skip_injuries=False)
-        except Exception as exc:
-            lineup_blocks.append(f"**{league_id}** - lineup errored: {exc}")
-            failed = True
-        else:
-            if result.get("status") == "cannot_evaluate":
-                failed = True
-            lineup_blocks.extend(_lineup_lines(result))
+        if "lineup" in sections:
+            try:
+                result = lineup.run(league_id, user_id, week, skip_injuries=False)
+            except Exception as exc:
+                blocks["lineup"].append(f"**{league_id}** - lineup errored: {exc}")
+                failures.append(f"{league_id}:lineup:{exc}")
+            else:
+                if result.get("status") == "cannot_evaluate":
+                    failures.append(f"{league_id}:lineup:{result.get('reason')}")
+                blocks["lineup"].extend(_lineup_lines(result))
+                prints[(league_id, state.LINEUP)] = state.fingerprint(
+                    state.lineup_identity(result)
+                )
 
-    parts = ["__**Trades**__", *trade_blocks]
-    if inbox_blocks:
-        parts += ["", "__**Offers waiting on you**__", *inbox_blocks]
-    parts += ["", "__**Start / sit**__", *lineup_blocks]
+    if failures:
+        prints[("", state.FAILURES)] = state.fingerprint(
+            state.failures_identity(failures)
+        )
+    return blocks, prints, bool(failures)
+
+
+HEADINGS = {
+    "trades": "__**Trades**__",
+    "inbox": "__**Offers waiting on you**__",
+    "lineup": "__**Start / sit**__",
+}
+
+
+def render(blocks: dict[str, list[str]], failed: bool) -> str:
+    parts: list[str] = []
+    for name in ALL_SECTIONS:
+        lines = blocks.get(name) or []
+        if not lines:
+            continue
+        if parts:
+            parts.append("")
+        parts += [HEADINGS[name], *lines]
     if failed:
-        parts.append("")
-        parts.append("Something above could not be evaluated. That is not the same as nothing to do.")
-    return "\n".join(parts), failed
+        parts += [
+            "",
+            "Something above could not be evaluated. That is not the same as nothing to do.",
+        ]
+    return "\n".join(parts)
+
+
+def changed(prints: dict, stored: dict[str, dict[str, str]]) -> set[str]:
+    """Which sections are saying something they did not say last time.
+
+    A section with no stored fingerprint counts as changed, so the first run
+    after a deploy always speaks rather than starting out silent.
+    """
+    out = set()
+    for (league_id, section), value in prints.items():
+        if stored.get(league_id, {}).get(section) != value:
+            out.add(section)
+    return out
 
 
 def main() -> int:
@@ -167,24 +240,67 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=3, help="trade ideas per league")
     parser.add_argument("--week", type=int, default=None)
     parser.add_argument(
+        "--sections",
+        default=",".join(ALL_SECTIONS),
+        help=f"comma-separated subset of {','.join(ALL_SECTIONS)}",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="post even when nothing changed - the weekly heartbeat",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="print the digest instead of posting"
     )
     args = parser.parse_args()
 
-    message, failed = build(league_ids(), args.user, args.limit, args.week)
+    sections = tuple(
+        name.strip() for name in args.sections.split(",") if name.strip() in ALL_SECTIONS
+    )
+    if not sections:
+        parser.error(f"--sections must name at least one of {', '.join(ALL_SECTIONS)}")
 
-    # Always print. Under launchd this is what lands in the log, and a job whose
-    # log says only "finished" is useless when you are trying to work out what
-    # it told you three days ago.
-    print(message)
+    leagues = league_ids()
+    blocks, prints, failed = build(leagues, args.user, args.limit, args.week, sections)
 
-    if args.dry_run:
-        pass
-    elif not discord.webhook_url():
-        print("\n(not posted: no DISCORD_WEBHOOK_URL set)")
-    else:
-        discord.post(message)
-        print("\n(posted to Discord)")
+    from ffb.alerts import state
+    from ffb.db import Session, init_db
+
+    init_db()
+    with Session() as session:
+        stored = {league_id: state.load(session, league_id) for league_id in leagues}
+        stored[""] = state.load(session, "")
+        moved = changed(prints, stored)
+
+        # A section that has not moved is dropped from the message rather than
+        # repeated. --force keeps everything, which is what makes the weekly
+        # run a real heartbeat instead of a louder no-op.
+        shown = blocks if args.force else {k: v for k, v in blocks.items() if k in moved}
+        message = render(shown, failed)
+
+        # Always print, even when posting nothing. Under Actions this is the
+        # log, and a job whose log says only "finished" is useless when you are
+        # working out what it told you three days ago.
+        print(message or "(nothing new)")
+
+        if not message:
+            print("\n(not posted: nothing changed since the last run)")
+            return 1 if failed else 0
+
+        if args.dry_run:
+            pass
+        elif not discord.webhook_url():
+            print("\n(not posted: no DISCORD_WEBHOOK_URL set)")
+        else:
+            discord.post(message)
+            print("\n(posted to Discord)")
+
+        # Only remember what we actually said. A dry run or a missing webhook
+        # must not convince the next run that you have already been told.
+        if not args.dry_run and discord.webhook_url():
+            for (league_id, section), value in prints.items():
+                state.save(session, league_id, section, value)
+            session.commit()
 
     return 1 if failed else 0
 

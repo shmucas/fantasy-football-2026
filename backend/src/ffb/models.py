@@ -60,3 +60,22 @@ class InjuryState(Base):
     name: Mapped[str] = mapped_column(String, default="")
     position: Mapped[str] = mapped_column(String, default="")
     nfl_team: Mapped[str] = mapped_column(String, default="")
+
+
+class DigestState(Base):
+    """Fingerprint of the last thing the digest posted for one league section.
+
+    The digest used to post on every run, so the same three trade ideas went
+    out three times a day until a roster changed. It now compares against this
+    row and stays quiet when the answer has not moved.
+
+    One row per (league, section). Absence means we have never posted that
+    section, so the first run after a deploy always speaks.
+    """
+
+    __tablename__ = "digest_state"
+
+    league_id: Mapped[str] = mapped_column(String, primary_key=True)
+    section: Mapped[str] = mapped_column(String, primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
