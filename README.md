@@ -75,7 +75,8 @@ under placeholder ids that Sleeper rejects.
 
 ### Digest
 
-Trade ideas, offers waiting on me, and start/sit, posted to Discord.
+Trade ideas, waiver pickups, offers waiting on me, and start/sit, posted to
+Discord.
 
 ```bash
 uv run python -m ffb.alerts.digest --limit 3
@@ -96,6 +97,7 @@ Sections run on separate schedules because they move at different speeds:
 
 | Section | When | Why |
 | --- | --- | --- |
+| `waivers` | Tue evening | the last useful moment before claims process |
 | `trades` | Wed morning | waivers have processed, so rosters just moved |
 | `lineup` | Thu evening, Sun late morning | before TNF locks, and before the 1pm ET window |
 | `inbox` | with either | someone else's offer is on their clock, not yours |
@@ -118,6 +120,23 @@ Without it there is no inbox to read, which is reported as "could not look" and
 the digest skips the section entirely rather than claiming there are no offers.
 An offer holding a K or a DEF gets no confident verdict either, since the pool
 cannot value those and zero would read as a free win.
+
+### Waiver wire
+
+Who is worth claiming, and whether they fill a starting hole.
+
+```bash
+uv run python -m ffb.waivers 1391439647548129280
+```
+
+Ranked by value over replacement computed across the whole pool, so a pickup
+is measured against the last startable player at that position league-wide,
+not against whoever is left on the wire. K and DEF are excluded: the pools
+carry no K rows, and their DEF ids never match Sleeper's, so every defense
+would look permanently unrostered.
+
+An empty answer says how many players it looked at, so "nothing worth
+claiming" cannot be confused with "could not see the wire".
 
 ### Injury watch
 
@@ -219,6 +238,7 @@ uv run python -m ffb.verify
 | `ffb/draft/analyze.py` | Compare saved point results |
 | `ffb/sim/season.py` | One simulated season to wins |
 | `ffb/sim/evaluate.py` | Compare picks by expected wins |
+| `ffb/waivers.py` | Rank the wire, flag what fills a need |
 | `ffb/inbox.py` | Value the trades sent to me |
 | `ffb/pool.py` | League lookup and draft-pool selection |
 | `ffb/alerts/digest.py` | The digest, and which sections to run |

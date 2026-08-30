@@ -25,6 +25,11 @@ name: Digest
 # for both EDT and EST rather than drifting an hour in November.
 on:
   schedule:
+    # Tuesday evening: the last useful moment to review the wire. Claims
+    # process in the early hours of Wednesday, so advice that lands after
+    # that is about a wire that no longer exists.
+    - cron: "23 23 * * 2"
+    - cron: "23 0 * * 3"
     # Wednesday morning: waiver claims have processed overnight, so rosters
     # have just moved. That is the only time trade ideas actually change.
     - cron: "7 12 * * 3"
@@ -45,9 +50,9 @@ on:
         type: string
         default: "3"
       sections:
-        description: "Sections to run: trades, inbox, lineup"
+        description: "Sections to run: trades, waivers, inbox, lineup"
         type: string
-        default: "trades,inbox,lineup"
+        default: "trades,waivers,inbox,lineup"
       force:
         description: "Post even if nothing changed"
         type: boolean
@@ -92,10 +97,11 @@ jobs:
           # Which sections this run cares about, chosen by the schedule that
           # woke it. A manual run says so explicitly.
           case "${{ github.event.schedule }}" in
+            "23 23 * * 2"|"23 0 * * 3")  sections="waivers,inbox"; force="" ;;
             "7 12 * * 3"|"7 13 * * 3")   sections="trades,inbox"; force="" ;;
             "23 22 * * 4"|"23 23 * * 4") sections="lineup,inbox";  force="" ;;
             "15 15 * * 0"|"15 16 * * 0") sections="lineup,inbox";  force="--force" ;;
-            *) sections="${{ inputs.sections || 'trades,inbox,lineup' }}"
+            *) sections="${{ inputs.sections || 'trades,waivers,inbox,lineup' }}"
                force="${{ inputs.force && '--force' || '' }}" ;;
           esac
 

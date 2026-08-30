@@ -15,7 +15,8 @@ posted everything:
 
   - Sections are chosen per run with --sections, because they move on
     different clocks. Trade ideas change when rosters do, roughly twice a
-    week; a lineup matters in the hours before kickoff.
+    week; waiver advice is worthless after claims process on Wednesday
+    morning; a lineup matters in the hours before kickoff.
   - A section that would say the same thing it said last time says nothing.
     ffb.alerts.state holds the fingerprints. When every section is unchanged
     the job posts nothing at all rather than posting an empty digest.
@@ -31,7 +32,7 @@ import os
 from ffb.alerts import discord
 
 # The sections a run can include, in the order they appear in the message.
-ALL_SECTIONS = ("trades", "inbox", "lineup")
+ALL_SECTIONS = ("trades", "waivers", "inbox", "lineup")
 
 # Leagues to report on, as Sleeper ids. Overridable so a second season or a
 # borrowed league does not need a code change.
@@ -133,7 +134,7 @@ def build(
     (league, section) answer, and whether anything failed to evaluate.
     Deciding what to post is `select` below: this only looks.
     """
-    from ffb import cli_trades, inbox, lineup
+    from ffb import cli_trades, inbox, lineup, waivers
     from ffb.alerts import state
 
     has_token = bool(os.getenv("SLEEPER_TOKEN", "").strip())
@@ -157,6 +158,20 @@ def build(
                 blocks["trades"].extend(_trade_lines(report, limit))
                 prints[(league_id, state.TRADES)] = state.fingerprint(
                     state.trades_identity(report)
+                )
+
+        if "waivers" in sections:
+            try:
+                wire = waivers.report_for(league_id, user_id)
+            except Exception as exc:
+                blocks["waivers"].append(f"**{league_id}** - waivers errored: {exc}")
+                failures.append(f"{league_id}:waivers:{exc}")
+            else:
+                if wire.get("status") in (waivers.STATUS_FAILED, waivers.STATUS_NO_POOL):
+                    failures.append(f"{league_id}:waivers:{wire.get('reason')}")
+                blocks["waivers"].extend(waivers.pickup_lines(wire))
+                prints[(league_id, state.WAIVERS)] = state.fingerprint(
+                    state.waivers_identity(wire)
                 )
 
         # Offers sent to me. Skipped entirely without a token: the inbox lives
@@ -199,6 +214,7 @@ def build(
 
 HEADINGS = {
     "trades": "__**Trades**__",
+    "waivers": "__**Waiver wire**__",
     "inbox": "__**Offers waiting on you**__",
     "lineup": "__**Start / sit**__",
 }

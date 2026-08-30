@@ -19,6 +19,7 @@ from ffb.models import DigestState
 # Section names, used as part of the state key. Changing one resets that
 # section's history, which costs a single extra post.
 TRADES = "trades"
+WAIVERS = "waivers"
 INBOX = "inbox"
 LINEUP = "lineup"
 FAILURES = "failures"
@@ -70,6 +71,13 @@ def trades_identity(report: dict) -> list:
         ]
         for idea in ideas
     )
+
+
+def waivers_identity(report: dict) -> list:
+    """Which players are worth claiming. Not their value, which drifts, and not
+    the order, which flips between two near-equal pickups without the advice
+    changing."""
+    return sorted(str(p.get("player_id")) for p in report.get("pickups") or [])
 
 
 def inbox_identity(report: dict) -> list:

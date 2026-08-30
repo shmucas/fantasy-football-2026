@@ -5,11 +5,12 @@
 There is no deployment and no website. This is a Python package in `backend/`
 plus two scheduled GitHub Actions workflows that post to Discord:
 
-- `.github/workflows/digest.yml` - trade ideas, offers waiting on me, start/sit
+- `.github/workflows/digest.yml` - trade ideas, waivers, offers waiting on me,
+  start/sit. Sections run on separate crons and only post when they change.
 - `.github/workflows/injury-watch.yml` - injury status changes
 
 Everything else is run by hand from the CLI (`python -m ffb.cli_trades`,
-`ffb.inbox`, `ffb.alerts.digest`).
+`ffb.waivers`, `ffb.inbox`, `ffb.alerts.digest`).
 
 A Vite frontend and a Vercel Python Function used to serve this. Both were
 removed: the site was a demo, not something anyone used. `ffb.pool` holds the

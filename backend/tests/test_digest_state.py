@@ -88,3 +88,17 @@ def test_one_league_changing_speaks_for_that_section():
     prints = {("L1", state.TRADES): "same", ("L2", state.TRADES): "new"}
     stored = {"L1": {state.TRADES: "same"}, "L2": {state.TRADES: "old"}}
     assert changed(prints, stored) == {state.TRADES}
+
+
+def test_a_reordered_waiver_shortlist_is_not_a_change():
+    # Two near-equal pickups can swap places between runs without the advice
+    # changing, and that must not count as news.
+    a = {"pickups": [{"player_id": "p1"}, {"player_id": "p2"}]}
+    b = {"pickups": [{"player_id": "p2"}, {"player_id": "p1"}]}
+    assert state.waivers_identity(a) == state.waivers_identity(b)
+
+
+def test_a_new_name_on_the_wire_is_a_change():
+    a = {"pickups": [{"player_id": "p1"}]}
+    b = {"pickups": [{"player_id": "p1"}, {"player_id": "p3"}]}
+    assert state.waivers_identity(a) != state.waivers_identity(b)
