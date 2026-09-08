@@ -280,43 +280,38 @@ def main() -> int:
     blocks, prints, failed = build(leagues, args.user, args.limit, args.week, sections)
 
     from ffb.alerts import state
-    from ffb.db import Session, init_db
 
-    init_db()
-    with Session() as session:
-        stored = {league_id: state.load(session, league_id) for league_id in leagues}
-        stored[""] = state.load(session, "")
-        moved = changed(prints, stored)
+    stored = {league_id: state.load(league_id) for league_id in leagues}
+    stored[""] = state.load("")
+    moved = changed(prints, stored)
 
-        # A section that has not moved is dropped from the message rather than
-        # repeated. --force keeps everything, which is what makes the weekly
-        # run a real heartbeat instead of a louder no-op.
-        shown = blocks if args.force else {k: v for k, v in blocks.items() if k in moved}
-        message = render(shown, failed)
+    # A section that has not moved is dropped from the message rather than
+    # repeated. --force keeps everything, which is what makes the weekly
+    # run a real heartbeat instead of a louder no-op.
+    shown = blocks if args.force else {k: v for k, v in blocks.items() if k in moved}
+    message = render(shown, failed)
 
-        # Always print, even when posting nothing. Under Actions this is the
-        # log, and a job whose log says only "finished" is useless when you are
-        # working out what it told you three days ago.
-        print(message or "(nothing new)")
+    # Always print, even when posting nothing. Under Actions this is the
+    # log, and a job whose log says only "finished" is useless when you are
+    # working out what it told you three days ago.
+    print(message or "(nothing new)")
 
-        if not message:
-            print("\n(not posted: nothing changed since the last run)")
-            return 1 if failed else 0
+    if not message:
+        print("\n(not posted: nothing changed since the last run)")
+        return 1 if failed else 0
 
-        if args.dry_run:
-            pass
-        elif not discord.webhook_url():
-            print("\n(not posted: no DISCORD_WEBHOOK_URL set)")
-        else:
-            discord.post(message)
-            print("\n(posted to Discord)")
+    if args.dry_run:
+        pass
+    elif not discord.webhook_url():
+        print("\n(not posted: no DISCORD_WEBHOOK_URL set)")
+    else:
+        discord.post(message)
+        print("\n(posted to Discord)")
 
-        # Only remember what we actually said. A dry run or a missing webhook
-        # must not convince the next run that you have already been told.
-        if not args.dry_run and discord.webhook_url():
-            for (league_id, section), value in prints.items():
-                state.save(session, league_id, section, value)
-            session.commit()
+    # Only remember what we actually said. A dry run or a missing webhook
+    # must not convince the next run that you have already been told.
+    if not args.dry_run and discord.webhook_url():
+        state.save_all(prints)
 
     return 1 if failed else 0
 

@@ -12,9 +12,13 @@ the same answer.
 
 import hashlib
 import json
-from datetime import datetime, timezone
 
-from ffb.models import DigestState
+from ffb.alerts import store
+
+# The file under state/ that holds this. The digest and the injury watch keep
+# separate files: their schedules overlap, and two jobs rewriting one file
+# would lose whichever finished first.
+FILE = "digest"
 
 # Section names, used as part of the state key. Changing one resets that
 # section's history, which costs a single extra post.
@@ -36,19 +40,22 @@ def fingerprint(identity) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def load(session, league_id: str) -> dict[str, str]:
+def load(league_id: str) -> dict[str, str]:
     """section -> last posted fingerprint, for one league."""
-    rows = session.query(DigestState).filter(DigestState.league_id == league_id).all()
-    return {row.section: row.fingerprint for row in rows}
+    return store.read(FILE).get(league_id, {})
 
 
-def save(session, league_id: str, section: str, value: str) -> None:
-    row = session.get(DigestState, {"league_id": league_id, "section": section})
-    if row is None:
-        row = DigestState(league_id=league_id, section=section)
-        session.add(row)
-    row.fingerprint = value
-    row.updated_at = datetime.now(timezone.utc)
+def save_all(prints: dict) -> None:
+    """Record every fingerprint we just posted, in one write.
+
+    Takes the whole batch rather than a section at a time: the state is a
+    single file now, so saving section by section would rewrite it once per
+    section to no purpose.
+    """
+    data = store.read(FILE)
+    for (league_id, section), value in prints.items():
+        data.setdefault(league_id, {})[section] = value
+    store.write(FILE, data)
 
 
 # -- what identifies each section's answer ---------------------------------

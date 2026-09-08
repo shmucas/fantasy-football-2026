@@ -13,7 +13,10 @@
 #
 # Required repository secrets (Settings > Secrets and variables > Actions):
 #   DISCORD_WEBHOOK_URL - the Discord incoming webhook to post into
-#   DATABASE_URL        - the same hosted Postgres the app uses
+#
+# What the digest said last time lives in state/digest.json in this repo, and
+# the job commits it back. It used to be a table in hosted Postgres, which the
+# runners could not reach once the website that database served was removed.
 
 name: Digest
 
@@ -67,16 +70,18 @@ jobs:
   digest:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # To push state/digest.json back. A push made with GITHUB_TOKEN does not
+    # start another workflow run, so this cannot loop.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Check required secrets
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
-          test -n "$DATABASE_URL" || { echo "DATABASE_URL secret is not set"; exit 1; }
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -91,7 +96,6 @@ jobs:
         working-directory: backend
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           FFB_SLEEPER_USER_ID: "1125887731814576128"
         run: |
           # Which sections this run cares about, chosen by the schedule that
@@ -138,3 +142,29 @@ jobs:
           if [ "$status" -ne 0 ]; then
             echo "::warning::Posted, but at least one league could not be evaluated. See the log."
           fi
+
+      # The state the alerters keep is a file in this repo now, so it has to be
+      # pushed back or the next run starts blank and repeats itself. Runs even
+      # when the job failed: a partial run may still have recorded something.
+      - name: Save state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A state
+          if git diff --cached --quiet; then
+            echo "State unchanged, nothing to push."
+            exit 0
+          fi
+          git commit -m "Digest state"
+          # The digest and the injury watch overlap on Thursday evening, so two
+          # jobs can push within seconds of each other and one will be rejected.
+          for attempt in 1 2 3; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejected, rebasing on what landed first (attempt $attempt)."
+            git pull --rebase --autostash || exit 1
+          done
+          echo "::error::Could not push state after 3 attempts."
+          exit 1

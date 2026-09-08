@@ -11,15 +11,11 @@ don't get one message per already-injured player. Use --force to post anyway.
 
 import argparse
 import os
-from datetime import datetime, timezone
+from dataclasses import dataclass
 
-from sqlalchemy import delete, select
-
-from ffb.alerts import discord
+from ffb.alerts import discord, store
 from ffb.alerts.diff import RosteredPlayer, diff_statuses, format_message
-from ffb.db import Session, init_db
 from ffb.leagues import SLEEPER_USERNAME
-from ffb.models import InjuryState
 from ffb.nfldata.ids import normalize_name
 from ffb.sleeper_client import SleeperClient
 
@@ -74,9 +70,36 @@ def latest_injury_rows(season: int) -> tuple[list[dict], int]:
     return rows, week
 
 
-def load_state(session, season: str) -> dict[str, InjuryState]:
-    rows = session.scalars(select(InjuryState).where(InjuryState.season == season))
-    return {row.sleeper_player_id: row for row in rows}
+# The file under state/ that remembers what we last announced. See ffb.alerts.store
+# for why this is a file rather than a table.
+FILE = "injuries"
+
+
+@dataclass(frozen=True)
+class StoredInjury:
+    """One player's last announced status.
+
+    Name, position and team are kept alongside the status so a player who drops
+    off the report can still be named, without refetching Sleeper's 5MB player
+    dictionary just to resolve one id.
+    """
+
+    status: str
+    week: int
+    name: str = ""
+    position: str = ""
+    nfl_team: str = ""
+
+
+def load_state(season: str) -> dict[str, StoredInjury]:
+    """sleeper_player_id -> what we last said, for one season.
+
+    Absence of an entry means we have never flagged that player, which is what
+    makes the first run of a season seed quietly instead of announcing every
+    standing injury at once.
+    """
+    rows = store.read(FILE).get(season, {})
+    return {player_id: StoredInjury(**row) for player_id, row in rows.items()}
 
 
 def collect(season: str, username: str) -> tuple[dict, dict, int]:
@@ -113,78 +136,77 @@ def collect(season: str, username: str) -> tuple[dict, dict, int]:
 
 
 def run(season: str, username: str, force: bool, dry_run: bool) -> int:
-    init_db()
-    with Session() as session:
-        stored = load_state(session, season)
-        seen, current, week = collect(season, username)
+    stored = load_state(season)
+    seen, current, week = collect(season, username)
 
-        # Anyone we flagged before still needs considering, even if they have
-        # dropped off this week's report - that absence is the good news.
-        owned_leagues = rostered_players(season, username)
-        rostered = dict(seen)
-        for player_id, row in stored.items():
-            if player_id not in rostered and player_id in owned_leagues:
-                rostered[player_id] = RosteredPlayer(
-                    sleeper_player_id=player_id,
-                    name=row.name or player_id,
-                    position=row.position,
-                    nfl_team=row.nfl_team,
-                    leagues=tuple(owned_leagues[player_id]),
-                )
-
-        previous = {pid: row.status for pid, row in stored.items()}
-        result = diff_statuses(rostered, current, previous, week)
-
-        first_run = not stored
-        if first_run and not force:
-            _persist(session, season, week, result.next_state, rostered)
-            session.commit()
-            print(
-                f"Seeded {len(result.next_state)} injury statuses for {season} "
-                f"week {week}. Nothing posted on a first run - rerun with "
-                f"--force to announce the current report."
+    # Anyone we flagged before still needs considering, even if they have
+    # dropped off this week's report - that absence is the good news.
+    owned_leagues = rostered_players(season, username)
+    rostered = dict(seen)
+    for player_id, row in stored.items():
+        if player_id not in rostered and player_id in owned_leagues:
+            rostered[player_id] = RosteredPlayer(
+                sleeper_player_id=player_id,
+                name=row.name or player_id,
+                position=row.position,
+                nfl_team=row.nfl_team,
+                leagues=tuple(owned_leagues[player_id]),
             )
-            return 0
 
-        message = format_message(result.alerts, week)
-        if not message:
-            print(f"No injury changes for week {week}.")
-            return 0
+    previous = {pid: row.status for pid, row in stored.items()}
+    result = diff_statuses(rostered, current, previous, week)
 
-        if dry_run:
-            print(message)
-        else:
-            sent = discord.post(message)
-            print(f"Posted {len(result.alerts)} change(s) in {sent} message(s).")
+    first_run = not stored
+    if first_run and not force:
+        _persist(season, week, result.next_state, rostered)
+        print(
+            f"Seeded {len(result.next_state)} injury statuses for {season} "
+            f"week {week}. Nothing posted on a first run - rerun with "
+            f"--force to announce the current report."
+        )
+        return 0
 
-        _persist(session, season, week, result.next_state, rostered)
-        session.commit()
-        return len(result.alerts)
+    message = format_message(result.alerts, week)
+    if not message:
+        print(f"No injury changes for week {week}.")
+        return 0
+
+    if dry_run:
+        print(message)
+    else:
+        sent = discord.post(message)
+        print(f"Posted {len(result.alerts)} change(s) in {sent} message(s).")
+
+    _persist(season, week, result.next_state, rostered)
+    return len(result.alerts)
 
 
-def _persist(session, season: str, week: int, next_state, rostered) -> None:
-    now = datetime.now(timezone.utc)
+def _persist(season: str, week: int, next_state, rostered) -> None:
+    """Write this season's statuses back, leaving other seasons untouched."""
+    data = store.read(FILE)
+    rows = dict(data.get(season, {}))
     for player_id, status in next_state.items():
+        # A cleared status means the player is off the report. Dropping the row
+        # rather than storing None is what lets the next run treat them as new
+        # again if they reappear.
         if status is None:
-            session.execute(
-                delete(InjuryState).where(
-                    InjuryState.season == season,
-                    InjuryState.sleeper_player_id == player_id,
-                )
-            )
+            rows.pop(player_id, None)
             continue
         player = rostered.get(player_id)
-        row = session.get(InjuryState, {"season": season, "sleeper_player_id": player_id})
-        if row is None:
-            row = InjuryState(season=season, sleeper_player_id=player_id)
-            session.add(row)
-        row.status = status
-        row.week = week
-        row.updated_at = now
-        if player is not None:
-            row.name = player.name
-            row.position = player.position
-            row.nfl_team = player.nfl_team
+        previous = rows.get(player_id, {})
+        rows[player_id] = {
+            "status": status,
+            "week": week,
+            "name": player.name if player is not None else previous.get("name", ""),
+            "position": (
+                player.position if player is not None else previous.get("position", "")
+            ),
+            "nfl_team": (
+                player.nfl_team if player is not None else previous.get("nfl_team", "")
+            ),
+        }
+    data[season] = rows
+    store.write(FILE, data)
 
 
 def main() -> None:
