@@ -96,6 +96,14 @@ def room_for(pos: str, roster_positions: list[str], filled: Counter) -> int:
     return starter + flex_cap - filled.get(pos, 0)
 
 
+# The first round a single-QB league will spend on a quarterback. Raw VORP puts
+# the top QB around the 4th-best player on the board while the market has him
+# going a round or two later, so without this the bot reaches. Tunable: raising
+# it waits longer and gives up on the genuinely elite QB, since in a 12-team
+# league round 4 is already pick 37.
+QB_GATE_ROUND = 4
+
+
 def choose_pick(
     available: list[Player],
     my_roster: list[Player],
@@ -103,12 +111,21 @@ def choose_pick(
     replacement: dict[str, float],
     current_round: int,
     total_rounds: int,
+    single_qb: bool = False,
 ) -> Player:
     """Best pick: fill an open starter/flex slot by VORP, else best VORP left.
 
     DEF and K are gated to the final two rounds, because their raw VORP is not
     comparable to skill players. Within the last two rounds we still prefer a
     still-open skill slot over DEF/K (you fill your flex before your kicker).
+
+    QB is gated the same way in a single-QB league, until QB_GATE_ROUND. You
+    only start one, and the gap between the best QB and a merely good one is
+    small next to the gap between an early RB/WR and what is left three rounds
+    later. VORP measures against the last startable player at the position and
+    cannot see that, which is what made the bot take Joe Burrow at pick 25 on a
+    round-4 ADP. Superflex and 2QB leagues pass single_qb=False and are
+    unchanged, because there the QB value is real.
     """
     filled = Counter(p.position for p in my_roster)
 
@@ -125,6 +142,18 @@ def choose_pick(
             candidates = skill
         else:
             candidates = available
+
+    if single_qb and current_round < QB_GATE_ROUND:
+        gated = [p for p in candidates if p.position != "QB"]
+        # Only skip QBs while there is something else to take. A board with
+        # nothing but quarterbacks on it should still return a pick.
+        if gated:
+            candidates = gated
+
+    # Same guard for the DEF/K gate above, which could otherwise empty the
+    # board in a late round where only defenses and kickers are left.
+    if not candidates:
+        candidates = available
 
     roomed = [p for p in candidates if has_room(p)]
     return max(roomed if roomed else candidates, key=lambda p: vorp(p, replacement))
@@ -304,6 +333,15 @@ def main() -> int:
             my_slot = draft["draft_order"][my_user_id]
             rounds = int(draft["settings"]["rounds"])
             positions = roster_positions_from_settings(draft["settings"])
+            # Sleeper leaves a slot key out entirely when it is zero, so an
+            # absent superflex key means there is no superflex slot. Both
+            # spellings are checked because only the single-QB shape has been
+            # seen against a live league.
+            settings = draft["settings"]
+            single_qb = int(settings.get("slots_qb", 0) or 0) == 1 and not (
+                int(settings.get("slots_super_flex", 0) or 0)
+                or int(settings.get("slots_superflex", 0) or 0)
+            )
             replacement = replacement_levels(pool_players, positions, num_teams)
             all_players = [p for p in pool_players + kickers if p.player_id not in unavailable]
             last_submitted: int | None = None
@@ -368,6 +406,7 @@ def main() -> int:
                     available, my_roster, positions, replacement,
                     current_round=(pick_no - 1) // num_teams + 1,
                     total_rounds=rounds,
+                    single_qb=single_qb,
                 )
                 print(
                     f"  MY TURN (pick {pick_no}): {choice.name} ({choice.position}), "

@@ -3,6 +3,7 @@
 from collections import Counter
 
 from ffb.draft.live import (
+    QB_GATE_ROUND,
     _def_name_parts,
     choose_pick,
     is_my_turn,
@@ -110,6 +111,46 @@ def test_choose_pick_will_take_defense_in_final_rounds():
     available = [P("def1", "DEF", 160, name="Seattle Defense"), P("wr9", "WR", 240)]
     choice = choose_pick(available, my_roster, POS, replacement, 16, 17)
     assert choice.player_id == "def1"
+
+
+def test_choose_pick_wont_take_qb_early_in_single_qb():
+    # A QB has the highest raw VORP, but a single-QB league starts one of them
+    # and the skill player will not still be there three rounds later.
+    replacement = {"QB": 100.0, "RB": 150.0, "WR": 150.0, "TE": 100.0, "K": 0.0, "DEF": 80.0}
+    my_roster = [P("rb1", "RB", 300)]
+    available = [P("qb1", "QB", 250), P("wr9", "WR", 240)]
+    choice = choose_pick(available, my_roster, POS, replacement, 2, 15, single_qb=True)
+    assert choice.player_id == "wr9"
+
+
+def test_choose_pick_takes_the_qb_once_the_gate_has_passed():
+    replacement = {"QB": 100.0, "RB": 150.0, "WR": 150.0, "TE": 100.0, "K": 0.0, "DEF": 80.0}
+    my_roster = [P("rb1", "RB", 300)]
+    available = [P("qb1", "QB", 250), P("wr9", "WR", 240)]
+    choice = choose_pick(
+        available, my_roster, POS, replacement, QB_GATE_ROUND, 15, single_qb=True
+    )
+    assert choice.player_id == "qb1"
+
+
+def test_choose_pick_takes_the_qb_early_in_superflex():
+    # Same board, but a league that starts two quarterbacks. The gate is off
+    # and the QB's value is taken at face value.
+    replacement = {"QB": 100.0, "RB": 150.0, "WR": 150.0, "TE": 100.0, "K": 0.0, "DEF": 80.0}
+    my_roster = [P("rb1", "RB", 300)]
+    available = [P("qb1", "QB", 250), P("wr9", "WR", 240)]
+    choice = choose_pick(available, my_roster, POS, replacement, 2, 15, single_qb=False)
+    assert choice.player_id == "qb1"
+
+
+def test_choose_pick_takes_a_qb_early_rather_than_nothing():
+    # The gate must not empty the board: with only quarterbacks left there is
+    # still a pick to make, and failing to make one forfeits the slot.
+    replacement = {"QB": 100.0, "RB": 150.0, "WR": 150.0, "TE": 100.0, "K": 0.0, "DEF": 80.0}
+    my_roster = [P("rb1", "RB", 300)]
+    available = [P("qb1", "QB", 250), P("qb2", "QB", 240)]
+    choice = choose_pick(available, my_roster, POS, replacement, 2, 15, single_qb=True)
+    assert choice.player_id == "qb1"
 
 
 def test_def_name_parts_resolve_city_and_mascot():
