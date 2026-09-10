@@ -1,1 +1,32 @@
-{}
+{
+  "2026": {
+    "12529": {
+      "name": "TreVeyon Henderson",
+      "nfl_team": "NE",
+      "position": "RB",
+      "status": "Out",
+      "week": 1
+    },
+    "4035": {
+      "name": "Alvin Kamara",
+      "nfl_team": "NO",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 1
+    },
+    "4217": {
+      "name": "George Kittle",
+      "nfl_team": "SF",
+      "position": "TE",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 1
+    },
+    "8142": {
+      "name": "Alec Pierce",
+      "nfl_team": "IND",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 1
+    }
+  }
+}
