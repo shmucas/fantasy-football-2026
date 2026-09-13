@@ -11,7 +11,7 @@
       "name": "Alvin Kamara",
       "nfl_team": "NO",
       "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
+      "status": "Questionable",
       "week": 1
     },
     "4217": {
@@ -26,6 +26,13 @@
       "nfl_team": "IND",
       "position": "WR",
       "status": "Practice: Limited Participation in Practice",
+      "week": 1
+    },
+    "8800": {
+      "name": "Malik Davis",
+      "nfl_team": "DAL",
+      "position": "RB",
+      "status": "Out",
       "week": 1
     }
   }
