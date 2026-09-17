@@ -1,3 +1,39 @@
 {
-  "2026": {}
+  "2026": {
+    "4217": {
+      "name": "George Kittle",
+      "nfl_team": "SF",
+      "position": "TE",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 2
+    },
+    "6770": {
+      "name": "Joe Burrow",
+      "nfl_team": "CIN",
+      "position": "QB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 2
+    },
+    "6819": {
+      "name": "Michael Pittman",
+      "nfl_team": "PIT",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 2
+    },
+    "7049": {
+      "name": "Jauan Jennings",
+      "nfl_team": "MIN",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 2
+    },
+    "8130": {
+      "name": "Trey McBride",
+      "nfl_team": "ARI",
+      "position": "TE",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 2
+    }
+  }
 }
