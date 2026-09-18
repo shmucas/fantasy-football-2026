@@ -1,5 +1,12 @@
 {
   "2026": {
+    "2133": {
+      "name": "Davante Adams",
+      "nfl_team": "LA",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 2
+    },
     "4217": {
       "name": "George Kittle",
       "nfl_team": "SF",
@@ -18,7 +25,7 @@
       "name": "Michael Pittman",
       "nfl_team": "PIT",
       "position": "WR",
-      "status": "Practice: Limited Participation in Practice",
+      "status": "Practice: Did Not Participate In Practice",
       "week": 2
     },
     "7049": {
@@ -28,11 +35,18 @@
       "status": "Practice: Did Not Participate In Practice",
       "week": 2
     },
-    "8130": {
-      "name": "Trey McBride",
-      "nfl_team": "ARI",
-      "position": "TE",
+    "8142": {
+      "name": "Alec Pierce",
+      "nfl_team": "IND",
+      "position": "WR",
       "status": "Practice: Did Not Participate In Practice",
+      "week": 2
+    },
+    "8144": {
+      "name": "Chris Olave",
+      "nfl_team": "NO",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
       "week": 2
     }
   }
