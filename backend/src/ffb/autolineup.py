@@ -268,11 +268,14 @@ def main() -> int:
                 plan["league_id"], plan["roster_id"], plan["wanted"]
             )
 
-        # Check what came back rather than assuming. Printing "sent" straight
-        # after the call once reported two lineups set that Sleeper had not
-        # changed: a mutation that returns a PlannedWrite, or that answers with
-        # different starters than it was asked for, looks identical to success
-        # from the call site.
+        # Check what came back rather than assuming. A mutation that returns a
+        # PlannedWrite, because writes were off, looks identical to one that
+        # worked from the call site.
+        #
+        # The GraphQL response is the authority here, not a follow-up read of
+        # the public REST roster: that endpoint is cached and lags a write by
+        # a minute or so, which is long enough to convince you a write that
+        # landed had silently done nothing.
         if isinstance(result, PlannedWrite):
             print(f"{plan['league']}: NOT sent, writes are off ({result.describe()})")
             blocks.append(
@@ -296,9 +299,21 @@ def main() -> int:
 
     message = "\n".join(blocks)
     print("\n" + (message or "(nothing to report)"))
+
+    # Setting the lineup and telling you about it are different jobs, and they
+    # fail for different reasons. A dead webhook must not read as "the lineup
+    # was not set" when it was: that sends you to Sleeper to fix something that
+    # is already right. Both still fail the run, because a report you never
+    # receive is how this went unnoticed for a week in September.
     if message and not args.dry_run and discord.configured():
-        discord.post(f"__**Lineup**__\n{message}")
-        print("\n(posted to Discord)")
+        try:
+            discord.post(f"__**Lineup**__\n{message}")
+            print("\n(posted to Discord)")
+        except Exception as exc:
+            print(f"\n::error::Lineups are correct, but Discord could not be "
+                  f"reached, so this run could not report what it did: {exc}")
+            return 1
+
     return 1 if failed else 0
 
 
