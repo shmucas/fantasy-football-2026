@@ -83,8 +83,20 @@ jobs:
       - name: Check required secrets
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
         run: |
-          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          # Either route is fine: the bot needs a token and a channel, the
+          # webhook needs a URL. Requiring the webhook specifically would fail a
+          # perfectly working bot setup.
+          if [ -n "$DISCORD_BOT_TOKEN" ] && [ -n "$DISCORD_CHANNEL_ID" ]; then
+            echo "Discord: posting as the bot."
+          elif [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            echo "Discord: posting to the webhook."
+          else
+            echo "No way to reach Discord: set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID, or DISCORD_WEBHOOK_URL"
+            exit 1
+          fi
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -99,6 +111,8 @@ jobs:
         working-directory: backend
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
           FFB_SLEEPER_USER_ID: "1125887731814576128"
         run: |
           # Which sections this run cares about, chosen by the schedule that

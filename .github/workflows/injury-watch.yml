@@ -60,8 +60,20 @@ jobs:
       - name: Check required secrets
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
         run: |
-          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          # Either route is fine: the bot needs a token and a channel, the
+          # webhook needs a URL. Requiring the webhook specifically would fail a
+          # perfectly working bot setup.
+          if [ -n "$DISCORD_BOT_TOKEN" ] && [ -n "$DISCORD_CHANNEL_ID" ]; then
+            echo "Discord: posting as the bot."
+          elif [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            echo "Discord: posting to the webhook."
+          else
+            echo "No way to reach Discord: set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID, or DISCORD_WEBHOOK_URL"
+            exit 1
+          fi
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -76,6 +88,8 @@ jobs:
         working-directory: backend
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
           # Set an FFB_SEASON repository variable to override, for example to
           # 2025 while nflverse has no injury data for the coming season.
           FFB_SEASON: ${{ vars.FFB_SEASON || '2026' }}

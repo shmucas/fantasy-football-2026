@@ -11,7 +11,9 @@
 #   SLEEPER_TOKEN       - the Sleeper JWT. This is the account token, and with
 #                         FFB_ALLOW_WRITES set it can change a roster, so it
 #                         belongs nowhere except here.
-#   DISCORD_WEBHOOK_URL - where it reports what it did
+#   DISCORD_BOT_TOKEN   - FFB26BOT, which is how it reports what it did
+#   DISCORD_CHANNEL_ID  - the channel to post in
+#   DISCORD_WEBHOOK_URL - fallback, used only when the bot is not configured
 #
 # K and DEF slots are never touched: the player pool has no kicker rows and its
 # defense ids do not match Sleeper's, so whoever is in those slots stays there.
@@ -64,9 +66,21 @@ jobs:
         env:
           SLEEPER_TOKEN: ${{ secrets.SLEEPER_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
         run: |
           test -n "$SLEEPER_TOKEN" || { echo "SLEEPER_TOKEN secret is not set, so this job cannot set a lineup"; exit 1; }
-          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+          # Either route is fine: the bot needs a token and a channel, the
+          # webhook needs a URL. Requiring the webhook specifically would fail a
+          # perfectly working bot setup.
+          if [ -n "$DISCORD_BOT_TOKEN" ] && [ -n "$DISCORD_CHANNEL_ID" ]; then
+            echo "Discord: posting as the bot."
+          elif [ -n "$DISCORD_WEBHOOK_URL" ]; then
+            echo "Discord: posting to the webhook."
+          else
+            echo "No way to reach Discord: set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID, or DISCORD_WEBHOOK_URL"
+            exit 1
+          fi
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -82,6 +96,8 @@ jobs:
         env:
           SLEEPER_TOKEN: ${{ secrets.SLEEPER_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
           FFB_SLEEPER_USER_ID: "1125887731814576128"
           # The kill switch, on for this job only. Without it every mutation is
           # a dry run that describes the lineup it would have set.
