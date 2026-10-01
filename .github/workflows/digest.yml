@@ -74,6 +74,9 @@ jobs:
     # start another workflow run, so this cannot loop.
     permissions:
       contents: write
+      # To file an issue when a run fails, which is how a failure reaches
+      # you when Discord is the thing that is broken.
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -168,3 +171,50 @@ jobs:
           done
           echo "::error::Could not push state after 3 attempts."
           exit 1
+
+      # The thing that tells you it broke must not be the thing that broke.
+      # Discord deleted the webhook on 25 September and nothing said so for a
+      # week, because the only way this job had to reach you was that webhook.
+      # A GitHub issue arrives by email through GitHub's own notifications,
+      # which depend on neither Discord nor Sleeper.
+      - name: Report a failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Digest is failing"
+          # One open issue at a time, or every scheduled run files another.
+          open=$(gh issue list --state open --search "in:title \"$title\"" \
+                   --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            echo "Issue #$open is already open for this."
+            exit 0
+          fi
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body=$(printf '%s\n' \
+            "The scheduled digest failed and nothing reached Discord." \
+            "" \
+            "Failing run: $url" \
+            "" \
+            "Most likely causes, in order:" \
+            "" \
+            "- The Discord webhook was deleted. The log says the webhook no longer exists (404). Discord deletes a webhook when it finds the URL somewhere public. Make a new one in Server Settings > Integrations > Webhooks, then run: gh secret set DISCORD_WEBHOOK_URL" \
+            "- The Sleeper token expired. It lasts a year from the day it was issued." \
+            "- Something upstream changed shape and the job raised. The log says which." \
+            "" \
+            "This issue closes itself on the next run that succeeds.")
+          gh issue create --title "$title" --body "$body"
+
+      # Close the alert once it works again, so an open issue always means it is
+      # broken now rather than that it broke once in September.
+      - name: Clear the failure report
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Digest is failing"
+          open=$(gh issue list --state open --search "in:title \"$title\"" \
+                   --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue close "$open" --comment "Working again as of this run."
+          fi

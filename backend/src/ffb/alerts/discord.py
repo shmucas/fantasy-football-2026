@@ -11,6 +11,11 @@ import httpx
 
 WEBHOOK_ENV = "DISCORD_WEBHOOK_URL"
 
+
+class WebhookGone(RuntimeError):
+    """The webhook URL is well-formed but Discord no longer has it."""
+
+
 # Discord rejects a message body over 2000 characters.
 MAX_CONTENT = 2000
 
@@ -59,5 +64,16 @@ def post(text: str, url: str | None = None, timeout: float = 15.0) -> int:
     with httpx.Client(timeout=timeout) as client:
         for chunk in chunks:
             response = client.post(target, json={"content": chunk})
+            if response.status_code == 404:
+                # Discord deletes a webhook outright when it finds the URL
+                # published somewhere public, and the job then fails with a 404
+                # whose URL is masked in the log as a secret. Say what it means,
+                # because "404 for url ***" sends you looking in the wrong place.
+                raise WebhookGone(
+                    "Discord says this webhook no longer exists (404). It was "
+                    "deleted, not expired. Create a new one in Server Settings > "
+                    "Integrations > Webhooks, then update the "
+                    f"{WEBHOOK_ENV} repository secret."
+                )
             response.raise_for_status()
     return len(chunks)
