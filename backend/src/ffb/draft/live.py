@@ -89,11 +89,24 @@ def roster_positions_from_settings(settings: dict) -> list[str]:
 
 
 def room_for(pos: str, roster_positions: list[str], filled: Counter) -> int:
-    """Starter + flex capacity still open for `pos` on our roster."""
+    """Starter + flex capacity still open for `pos` on our roster.
+
+    The flex is one slot shared between RB, WR and TE, so it is counted once
+    across all of them rather than offered to each. Counting it per position
+    told the bot it had three open slots when it had one, which is how a second
+    tight end still looked like it fitted after a third running back had
+    already taken the flex.
+    """
     need = Counter(s for s in roster_positions if s != "BN")
-    starter = need.get(pos, 0)
-    flex_cap = need.get("FLEX", 0) if pos in FLEX_ELIGIBLE else 0
-    return starter + flex_cap - filled.get(pos, 0)
+    base = need.get(pos, 0) - filled.get(pos, 0)
+    if base > 0 or pos not in FLEX_ELIGIBLE:
+        return base
+    # Own-position slots are full, so what is left is whatever flex capacity
+    # nobody else has spilled into yet.
+    spilled = sum(
+        max(0, filled.get(other, 0) - need.get(other, 0)) for other in FLEX_ELIGIBLE
+    )
+    return need.get("FLEX", 0) - spilled
 
 
 # The first round a single-QB league will spend on a quarterback. Raw VORP puts

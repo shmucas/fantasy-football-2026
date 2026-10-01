@@ -153,6 +153,17 @@ def test_choose_pick_takes_a_qb_early_rather_than_nothing():
     assert choice.player_id == "qb1"
 
 
+def test_room_for_shares_one_flex_across_positions():
+    # POS has a single FLEX. Once a third RB has taken it, it is gone: a TE
+    # whose own slot is full must not still be told the flex is open. Counting
+    # the flex once per position is what let a second and third tight end look
+    # like they fitted.
+    filled = Counter({"RB": 3, "WR": 2, "TE": 1})  # RB3 is in the flex
+    assert room_for("TE", POS, filled) == 0
+    assert room_for("WR", POS, filled) == 0
+    assert room_for("RB", POS, filled) == 0
+
+
 def test_def_name_parts_resolve_city_and_mascot():
     assert _def_name_parts("Seattle Defense") == ("seattle", "")
     assert _def_name_parts("LA Rams Defense") == ("los angeles", "rams")
