@@ -26,7 +26,7 @@ from ffb.alerts import discord
 from ffb.draft.strategy import FLEX_ELIGIBLE
 from ffb.lineup import POOL_BLIND_SLOTS
 from ffb.lineup import run as advise_lineup
-from ffb.sleeper_auth import SleeperAuthClient, writes_enabled
+from ffb.sleeper_auth import PlannedWrite, SleeperAuthClient, writes_enabled
 
 USER_ENV = "FFB_SLEEPER_USER_ID"
 DEFAULT_USER = "1125887731814576128"
@@ -264,8 +264,34 @@ def main() -> int:
             continue
 
         with SleeperAuthClient() as auth:
-            auth.set_starters(plan["league_id"], plan["roster_id"], plan["wanted"])
-        print(f"{plan['league']}: sent")
+            result = auth.set_starters(
+                plan["league_id"], plan["roster_id"], plan["wanted"]
+            )
+
+        # Check what came back rather than assuming. Printing "sent" straight
+        # after the call once reported two lineups set that Sleeper had not
+        # changed: a mutation that returns a PlannedWrite, or that answers with
+        # different starters than it was asked for, looks identical to success
+        # from the call site.
+        if isinstance(result, PlannedWrite):
+            print(f"{plan['league']}: NOT sent, writes are off ({result.describe()})")
+            blocks.append(
+                f"**{plan['league']}** - lineup NOT set: writes are disabled."
+            )
+            failed = True
+            continue
+
+        got = [str(s) for s in (result.get("roster_update_starters") or {}).get("starters", [])]
+        if got != plan["wanted"]:
+            print(f"{plan['league']}: Sleeper answered with {got}")
+            blocks.append(
+                f"**{plan['league']}** - lineup NOT set: Sleeper accepted the "
+                f"call but returned a different lineup."
+            )
+            failed = True
+            continue
+
+        print(f"{plan['league']}: sent and confirmed")
         blocks.extend(describe(plan))
 
     message = "\n".join(blocks)
