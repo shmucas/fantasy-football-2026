@@ -24,6 +24,11 @@ class SleeperClient:
     def get_users(self, league_id: str) -> list[dict]:
         return self._get(f"/league/{league_id}/users")
 
+    def get_state(self, sport: str = "nfl") -> dict:
+        """League-independent season state. `week` here is what Sleeper counts
+        as the current week, which is what decides who is on bye."""
+        return self._get(f"/state/{sport}")
+
     def get_matchups(self, league_id: str, week: int) -> list[dict]:
         return self._get(f"/league/{league_id}/matchups/{week}")
 

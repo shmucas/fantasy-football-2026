@@ -25,5 +25,12 @@ Jobs run on GitHub Actions runners, so their env vars are repository secrets,
 not a hosting provider's settings. `backend/.env` covers local runs and is
 gitignored.
 
-Writes to Sleeper stay gated behind `FFB_ALLOW_WRITES`, which is deliberately
-never set in CI.
+Writes to Sleeper stay gated behind `FFB_ALLOW_WRITES`. It is set in exactly
+one place, `.github/workflows/autolineup.yml`, which sets the starting lineup
+before each slate. Everything else reads, and leaving it unset is what keeps a
+misconfigured job describing a move instead of making one.
+
+Lineups are the only thing written. A lineup can be set again on the next run
+if it is wrong and costs nothing, while a waiver claim spends FAAB and a trade
+involves other people. Neither of those can be undone by rerunning a job, so
+they stay manual.

@@ -84,6 +84,10 @@ class LineupAdvice:
     # no projection, so they count as zero and are called out.
     unvalued_starters: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # The modelled best lineup itself, not just the diff against the current
+    # one. ffb.autolineup needs the whole thing to write a starters array back
+    # to Sleeper: a diff says what to change, not what the lineup should be.
+    optimal: list[Move] = field(default_factory=list)
 
     @property
     def points_gained(self) -> float:
@@ -291,6 +295,7 @@ def advise(
         unevaluated_slots=sorted(set(dropped)),
         unvalued_starters=unvalued,
         notes=notes,
+        optimal=[_move(p) for p in optimal],
     )
 
 
@@ -320,6 +325,7 @@ def as_dict(advice: LineupAdvice) -> dict:
         "unevaluated_slots": advice.unevaluated_slots,
         "unvalued_starters": advice.unvalued_starters,
         "notes": advice.notes,
+        "optimal": side(advice.optimal),
     }
 
 

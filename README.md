@@ -188,6 +188,16 @@ when the lid is open.
 | --- | --- |
 | `.github/workflows/digest.yml` | Twice a day, plus Sunday late morning for inactives |
 | `.github/workflows/injury-watch.yml` | Practice reports Wed to Fri, and before Thu/Sun/Mon games |
+| `.github/workflows/autolineup.yml` | About 90 minutes before the Sun/Thu/Mon kickoffs |
+
+`autolineup.yml` is the only one that writes to Sleeper. It needs a third
+secret, `SLEEPER_TOKEN`, and it is the only job with `FFB_ALLOW_WRITES` set.
+It sets lineups and nothing else: a lineup can be set again next run, while a
+waiver claim spends FAAB and a trade involves other people.
+
+All three open a GitHub issue when they fail, because the only channel they had
+to report a failure used to be the Discord webhook, so when Discord deleted the
+webhook in September the jobs failed 20 times in silence.
 
 Both need two repository secrets under Settings > Secrets and variables >
 Actions:
@@ -246,6 +256,7 @@ uv run python -m ffb.verify
 | `ffb/alerts/injuries.py` | Injury watch |
 | `ffb/alerts/diff.py` | What counts as an injury change |
 | `ffb/alerts/discord.py` | Post to a Discord webhook |
+| `ffb/autolineup.py` | Set the starting lineup on Sleeper |
 
 ## More
 

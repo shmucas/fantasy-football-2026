@@ -1,0 +1,132 @@
+# Set the starting lineup on Sleeper before each slate locks.
+#
+# This is the only workflow here that writes to Sleeper. The digest and the
+# injury watch read, and their FFB_ALLOW_WRITES stays unset on purpose.
+#
+# It writes lineups and nothing else. A lineup can be set again next run if it
+# is wrong, and costs nothing; a waiver claim spends FAAB and a trade involves
+# other people, and neither can be undone by rerunning a job.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   SLEEPER_TOKEN       - the Sleeper JWT. This is the account token, and with
+#                         FFB_ALLOW_WRITES set it can change a roster, so it
+#                         belongs nowhere except here.
+#   DISCORD_WEBHOOK_URL - where it reports what it did
+#
+# K and DEF slots are never touched: the player pool has no kicker rows and its
+# defense ids do not match Sleeper's, so whoever is in those slots stays there.
+
+name: Auto lineup
+
+on:
+  schedule:
+    # Times are UTC and GitHub does not do daylight saving, so each slot is
+    # listed for both EDT and EST. Each is roughly 90 minutes before kickoff,
+    # which is when inactives are known.
+    #
+    # Sunday late morning, before the 1pm ET window.
+    - cron: "15 15 * * 0"
+    - cron: "15 16 * * 0"
+    # Thursday evening, before TNF.
+    - cron: "30 22 * * 4"
+    - cron: "30 23 * * 4"
+    # Monday evening, before MNF.
+    - cron: "30 22 * * 1"
+    - cron: "30 23 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Work out the lineup and print it, changing nothing"
+        type: boolean
+        default: false
+      week:
+        description: "Override the week (default: whatever Sleeper says)"
+        type: string
+        default: ""
+
+# Two runs setting the same lineup would race each other.
+concurrency:
+  group: autolineup
+  cancel-in-progress: false
+
+jobs:
+  lineup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # To file an issue when a run fails, which is how a failure reaches you
+      # when Discord is the thing that is broken.
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        env:
+          SLEEPER_TOKEN: ${{ secrets.SLEEPER_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          test -n "$SLEEPER_TOKEN" || { echo "SLEEPER_TOKEN secret is not set, so this job cannot set a lineup"; exit 1; }
+          test -n "$DISCORD_WEBHOOK_URL" || { echo "DISCORD_WEBHOOK_URL secret is not set"; exit 1; }
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install
+        working-directory: backend
+        run: uv sync
+
+      - name: Set lineups
+        working-directory: backend
+        env:
+          SLEEPER_TOKEN: ${{ secrets.SLEEPER_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FFB_SLEEPER_USER_ID: "1125887731814576128"
+          # The kill switch, on for this job only. Without it every mutation is
+          # a dry run that describes the lineup it would have set.
+          FFB_ALLOW_WRITES: "1"
+        run: |
+          uv run python -m ffb.autolineup \
+            ${{ inputs.dry_run && '--dry-run' || '' }} \
+            ${{ inputs.week && format('--week {0}', inputs.week) || '' }}
+
+      # The thing that tells you it broke must not be the thing that broke.
+      - name: Report a failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Auto lineup is failing"
+          open=$(gh issue list --state open --search "in:title \"$title\"" \
+                   --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            echo "Issue #$open is already open for this."
+            exit 0
+          fi
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body=$(printf '%s\n' \
+            "The lineup job failed, so a lineup may not have been set before kickoff." \
+            "" \
+            "Failing run: $url" \
+            "" \
+            "Most likely causes, in order:" \
+            "" \
+            "- The Sleeper token expired or was revoked. It lasts a year from the day it was issued. Log in to Sleeper again and run: gh secret set SLEEPER_TOKEN" \
+            "- The Discord webhook was deleted. Make a new one in Server Settings > Integrations > Webhooks, then run: gh secret set DISCORD_WEBHOOK_URL" \
+            "- A roster could not be evaluated, so it refused to set a partial lineup. The log names the slot." \
+            "" \
+            "This issue closes itself on the next run that succeeds.")
+          gh issue create --title "$title" --body "$body"
+
+      - name: Clear the failure report
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Auto lineup is failing"
+          open=$(gh issue list --state open --search "in:title \"$title\"" \
+                   --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue close "$open" --comment "Working again as of this run."
+          fi
