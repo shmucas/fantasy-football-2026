@@ -302,15 +302,15 @@ def main() -> int:
 
     if args.dry_run:
         pass
-    elif not discord.webhook_url():
-        print("\n(not posted: no DISCORD_WEBHOOK_URL set)")
+    elif not discord.configured():
+        print("\n(not posted: no Discord bot token or webhook set)")
     else:
         discord.post(message)
         print("\n(posted to Discord)")
 
     # Only remember what we actually said. A dry run or a missing webhook
     # must not convince the next run that you have already been told.
-    if not args.dry_run and discord.webhook_url():
+    if not args.dry_run and discord.configured():
         state.save_all(prints)
 
     return 1 if failed else 0

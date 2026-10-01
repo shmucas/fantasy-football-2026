@@ -270,7 +270,7 @@ def main() -> int:
 
     message = "\n".join(blocks)
     print("\n" + (message or "(nothing to report)"))
-    if message and not args.dry_run and discord.webhook_url():
+    if message and not args.dry_run and discord.configured():
         discord.post(f"__**Lineup**__\n{message}")
         print("\n(posted to Discord)")
     return 1 if failed else 0

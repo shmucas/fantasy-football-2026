@@ -1,8 +1,16 @@
-"""Post to a Discord incoming webhook.
+"""Post to Discord, by bot token if one is configured and by webhook otherwise.
 
-A webhook is deliberately all this needs: it is a plain HTTPS POST, so the
-alerter can run as a scheduled job anywhere. A bot that answers slash commands
-would need a long-lived process, which the current hosting does not provide.
+A webhook is the simplest thing that works: a plain HTTPS POST, so the alerter
+can run as a scheduled job anywhere. It has one bad property, which cost a week
+of silence in September. A webhook URL is a bearer credential sitting in plain
+text, and Discord scans public repositories for them and deletes the ones it
+finds. One committed `.env.bak` and the channel goes quiet.
+
+So a bot token is preferred when both it and a channel id are set. It is not
+more secure in itself, but it is revocable and rotatable without touching every
+job's config, and the same bot can read messages, which is what a conversational
+assistant needs. The webhook stays as the fallback so nothing that already works
+has to change.
 """
 
 import os
@@ -10,10 +18,18 @@ import os
 import httpx
 
 WEBHOOK_ENV = "DISCORD_WEBHOOK_URL"
+BOT_TOKEN_ENV = "DISCORD_BOT_TOKEN"
+CHANNEL_ENV = "DISCORD_CHANNEL_ID"
+
+API = "https://discord.com/api/v10"
 
 
 class WebhookGone(RuntimeError):
     """The webhook URL is well-formed but Discord no longer has it."""
+
+
+class BotPostFailed(RuntimeError):
+    """The bot could not post: usually a revoked token or a channel it cannot see."""
 
 
 # Discord rejects a message body over 2000 characters.
@@ -23,6 +39,25 @@ MAX_CONTENT = 2000
 def webhook_url() -> str | None:
     url = os.getenv(WEBHOOK_ENV, "").strip()
     return url or None
+
+
+def bot_credentials() -> tuple[str, str] | None:
+    """(token, channel_id) when the bot route is fully configured.
+
+    Both are required: a token with no channel has nowhere to post, and saying
+    so here keeps the caller from falling back to a webhook it also lacks and
+    reporting the wrong missing setting.
+    """
+    token = os.getenv(BOT_TOKEN_ENV, "").strip()
+    channel = os.getenv(CHANNEL_ENV, "").strip()
+    if token and channel:
+        return token, channel
+    return None
+
+
+def configured() -> bool:
+    """Whether there is any way to reach Discord at all."""
+    return bot_credentials() is not None or webhook_url() is not None
 
 
 def split_message(text: str, limit: int = MAX_CONTENT) -> list[str]:
@@ -50,17 +85,30 @@ def split_message(text: str, limit: int = MAX_CONTENT) -> list[str]:
     return chunks
 
 
-def post(text: str, url: str | None = None, timeout: float = 15.0) -> int:
-    """Send `text` to the webhook. Returns how many messages were posted."""
-    target = url or webhook_url()
-    if not target:
-        raise RuntimeError(
-            f"No Discord webhook configured - set {WEBHOOK_ENV} to the webhook URL."
-        )
-    if not text.strip():
-        return 0
+def _post_as_bot(chunks: list[str], token: str, channel: str, timeout: float) -> int:
+    headers = {"Authorization": f"Bot {token}"}
+    with httpx.Client(timeout=timeout) as client:
+        for chunk in chunks:
+            response = client.post(
+                f"{API}/channels/{channel}/messages",
+                headers=headers,
+                json={"content": chunk},
+            )
+            if response.status_code in (401, 403, 404):
+                # Named separately because the three mean different things and
+                # the fix differs: a dead token, a channel the bot was never
+                # invited to, and a channel that no longer exists.
+                raise BotPostFailed(
+                    f"Discord refused the bot post with {response.status_code}. "
+                    f"401 means {BOT_TOKEN_ENV} is revoked, 403 means the bot is "
+                    f"not allowed to post in channel {channel}, and 404 means "
+                    f"that channel does not exist."
+                )
+            response.raise_for_status()
+    return len(chunks)
 
-    chunks = split_message(text)
+
+def _post_to_webhook(chunks: list[str], target: str, timeout: float) -> int:
     with httpx.Client(timeout=timeout) as client:
         for chunk in chunks:
             response = client.post(target, json={"content": chunk})
@@ -71,9 +119,37 @@ def post(text: str, url: str | None = None, timeout: float = 15.0) -> int:
                 # because "404 for url ***" sends you looking in the wrong place.
                 raise WebhookGone(
                     "Discord says this webhook no longer exists (404). It was "
-                    "deleted, not expired. Create a new one in Server Settings > "
-                    "Integrations > Webhooks, then update the "
-                    f"{WEBHOOK_ENV} repository secret."
+                    "deleted, not expired. Either set "
+                    f"{BOT_TOKEN_ENV} and {CHANNEL_ENV} to post as the bot, or "
+                    "create a new webhook in Server Settings > Integrations > "
+                    f"Webhooks and update {WEBHOOK_ENV}."
                 )
             response.raise_for_status()
     return len(chunks)
+
+
+def post(text: str, url: str | None = None, timeout: float = 15.0) -> int:
+    """Send `text` to Discord. Returns how many messages were posted.
+
+    An explicit `url` still forces the webhook, so a caller that has one in hand
+    keeps working exactly as before.
+    """
+    if not text.strip():
+        return 0
+
+    chunks = split_message(text)
+
+    if url:
+        return _post_to_webhook(chunks, url, timeout)
+
+    bot = bot_credentials()
+    if bot:
+        return _post_as_bot(chunks, bot[0], bot[1], timeout)
+
+    target = webhook_url()
+    if not target:
+        raise RuntimeError(
+            f"No way to reach Discord: set {BOT_TOKEN_ENV} and {CHANNEL_ENV} to "
+            f"post as the bot, or {WEBHOOK_ENV} to post to a webhook."
+        )
+    return _post_to_webhook(chunks, target, timeout)
