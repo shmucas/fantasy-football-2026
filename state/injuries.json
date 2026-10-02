@@ -5,49 +5,28 @@
       "nfl_team": "LA",
       "position": "WR",
       "status": "Practice: Did Not Participate In Practice",
-      "week": 2
+      "week": 4
     },
-    "4217": {
-      "name": "George Kittle",
-      "nfl_team": "SF",
-      "position": "TE",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 2
-    },
-    "6770": {
-      "name": "Joe Burrow",
-      "nfl_team": "CIN",
-      "position": "QB",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 2
-    },
-    "6819": {
-      "name": "Michael Pittman",
-      "nfl_team": "PIT",
-      "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
-      "week": 2
-    },
-    "7049": {
-      "name": "Jauan Jennings",
+    "4199": {
+      "name": "Aaron Jones",
       "nfl_team": "MIN",
-      "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
-      "week": 2
-    },
-    "8142": {
-      "name": "Alec Pierce",
-      "nfl_team": "IND",
-      "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
-      "week": 2
-    },
-    "8144": {
-      "name": "Chris Olave",
-      "nfl_team": "NO",
-      "position": "WR",
+      "position": "RB",
       "status": "Practice: Limited Participation in Practice",
-      "week": 2
+      "week": 4
+    },
+    "5022": {
+      "name": "Dallas Goedert",
+      "nfl_team": "PHI",
+      "position": "TE",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 4
+    },
+    "6813": {
+      "name": "Jonathan Taylor",
+      "nfl_team": "IND",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 4
     }
   }
 }
