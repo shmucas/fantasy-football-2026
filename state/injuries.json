@@ -1,12 +1,5 @@
 {
   "2026": {
-    "2133": {
-      "name": "Davante Adams",
-      "nfl_team": "LA",
-      "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
-      "week": 4
-    },
     "4199": {
       "name": "Aaron Jones",
       "nfl_team": "MIN",
@@ -18,7 +11,14 @@
       "name": "Dallas Goedert",
       "nfl_team": "PHI",
       "position": "TE",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Out",
+      "week": 4
+    },
+    "5927": {
+      "name": "Terry McLaurin",
+      "nfl_team": "WAS",
+      "position": "WR",
+      "status": "Questionable",
       "week": 4
     }
   }
