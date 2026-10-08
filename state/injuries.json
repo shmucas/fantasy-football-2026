@@ -1,25 +1,3 @@
 {
-  "2026": {
-    "4199": {
-      "name": "Aaron Jones",
-      "nfl_team": "MIN",
-      "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 4
-    },
-    "5022": {
-      "name": "Dallas Goedert",
-      "nfl_team": "PHI",
-      "position": "TE",
-      "status": "Out",
-      "week": 4
-    },
-    "5927": {
-      "name": "Terry McLaurin",
-      "nfl_team": "WAS",
-      "position": "WR",
-      "status": "Questionable",
-      "week": 4
-    }
-  }
+  "2026": {}
 }
