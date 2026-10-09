@@ -1,3 +1,53 @@
 {
-  "2026": {}
+  "2026": {
+    "4035": {
+      "name": "Alvin Kamara",
+      "nfl_team": "NO",
+      "position": "RB",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 5
+    },
+    "4199": {
+      "name": "Aaron Jones",
+      "nfl_team": "MIN",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 5
+    },
+    "5927": {
+      "name": "Terry McLaurin",
+      "nfl_team": "WAS",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 5
+    },
+    "6813": {
+      "name": "Jonathan Taylor",
+      "nfl_team": "IND",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 5
+    },
+    "6819": {
+      "name": "Michael Pittman",
+      "nfl_team": "PIT",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 5
+    },
+    "7528": {
+      "name": "Najee Harris",
+      "nfl_team": "NYG",
+      "position": "RB",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 5
+    },
+    "8144": {
+      "name": "Chris Olave",
+      "nfl_team": "NO",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 5
+    }
+  }
 }
