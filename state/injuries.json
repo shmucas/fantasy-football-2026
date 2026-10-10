@@ -1,16 +1,30 @@
 {
   "2026": {
+    "2133": {
+      "name": "Davante Adams",
+      "nfl_team": "LA",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 5
+    },
     "4035": {
       "name": "Alvin Kamara",
       "nfl_team": "NO",
       "position": "RB",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Practice: Limited Participation in Practice",
       "week": 5
     },
     "4199": {
       "name": "Aaron Jones",
       "nfl_team": "MIN",
       "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 5
+    },
+    "5022": {
+      "name": "Dallas Goedert",
+      "nfl_team": "PHI",
+      "position": "TE",
       "status": "Practice: Limited Participation in Practice",
       "week": 5
     },
@@ -21,24 +35,10 @@
       "status": "Practice: Did Not Participate In Practice",
       "week": 5
     },
-    "6813": {
-      "name": "Jonathan Taylor",
-      "nfl_team": "IND",
-      "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 5
-    },
     "6819": {
       "name": "Michael Pittman",
       "nfl_team": "PIT",
       "position": "WR",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 5
-    },
-    "7528": {
-      "name": "Najee Harris",
-      "nfl_team": "NYG",
-      "position": "RB",
       "status": "Practice: Did Not Participate In Practice",
       "week": 5
     },
@@ -46,7 +46,7 @@
       "name": "Chris Olave",
       "nfl_team": "NO",
       "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Practice: Limited Participation in Practice",
       "week": 5
     }
   }
