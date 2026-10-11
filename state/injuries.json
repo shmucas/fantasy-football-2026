@@ -1,17 +1,10 @@
 {
   "2026": {
-    "2133": {
-      "name": "Davante Adams",
-      "nfl_team": "LA",
-      "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
-      "week": 5
-    },
     "4035": {
       "name": "Alvin Kamara",
       "nfl_team": "NO",
       "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
+      "status": "Questionable",
       "week": 5
     },
     "4199": {
@@ -21,32 +14,18 @@
       "status": "Practice: Limited Participation in Practice",
       "week": 5
     },
-    "5022": {
-      "name": "Dallas Goedert",
-      "nfl_team": "PHI",
-      "position": "TE",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 5
-    },
     "5927": {
       "name": "Terry McLaurin",
       "nfl_team": "WAS",
       "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Questionable",
       "week": 5
     },
     "6819": {
       "name": "Michael Pittman",
       "nfl_team": "PIT",
       "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
-      "week": 5
-    },
-    "8144": {
-      "name": "Chris Olave",
-      "nfl_team": "NO",
-      "position": "WR",
-      "status": "Practice: Limited Participation in Practice",
+      "status": "Out",
       "week": 5
     }
   }
