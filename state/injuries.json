@@ -1,3 +1,39 @@
 {
-  "2026": {}
+  "2026": {
+    "12529": {
+      "name": "TreVeyon Henderson",
+      "nfl_team": "NE",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 6
+    },
+    "4035": {
+      "name": "Alvin Kamara",
+      "nfl_team": "NO",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 6
+    },
+    "4037": {
+      "name": "Chris Godwin Jr.",
+      "nfl_team": "TB",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 6
+    },
+    "6813": {
+      "name": "Jonathan Taylor",
+      "nfl_team": "IND",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 6
+    },
+    "8144": {
+      "name": "Chris Olave",
+      "nfl_team": "NO",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 6
+    }
+  }
 }
