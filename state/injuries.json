@@ -4,21 +4,28 @@
       "name": "TreVeyon Henderson",
       "nfl_team": "NE",
       "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
+      "status": "Questionable",
+      "week": 6
+    },
+    "3271": {
+      "name": "Tyler Higbee",
+      "nfl_team": "LA",
+      "position": "TE",
+      "status": "Practice: Did Not Participate In Practice",
       "week": 6
     },
     "4035": {
       "name": "Alvin Kamara",
       "nfl_team": "NO",
       "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
+      "status": "Questionable",
       "week": 6
     },
     "5872": {
       "name": "Deebo Samuel Sr.",
       "nfl_team": "SF",
       "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Out",
       "week": 6
     },
     "5927": {
@@ -32,7 +39,7 @@
       "name": "Chris Olave",
       "nfl_team": "NO",
       "position": "WR",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Questionable",
       "week": 6
     }
   }
