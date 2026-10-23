@@ -1,3 +1,25 @@
 {
-  "2026": {}
+  "2026": {
+    "4035": {
+      "name": "Alvin Kamara",
+      "nfl_team": "NO",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 7
+    },
+    "5872": {
+      "name": "Deebo Samuel Sr.",
+      "nfl_team": "SF",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 7
+    },
+    "6813": {
+      "name": "Jonathan Taylor",
+      "nfl_team": "IND",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 7
+    }
+  }
 }
