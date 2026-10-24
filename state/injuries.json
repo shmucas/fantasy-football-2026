@@ -7,18 +7,25 @@
       "status": "Practice: Limited Participation in Practice",
       "week": 7
     },
+    "4037": {
+      "name": "Chris Godwin Jr.",
+      "nfl_team": "TB",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 7
+    },
+    "5022": {
+      "name": "Dallas Goedert",
+      "nfl_team": "PHI",
+      "position": "TE",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 7
+    },
     "5872": {
       "name": "Deebo Samuel Sr.",
       "nfl_team": "SF",
       "position": "WR",
       "status": "Practice: Did Not Participate In Practice",
-      "week": 7
-    },
-    "6813": {
-      "name": "Jonathan Taylor",
-      "nfl_team": "IND",
-      "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
       "week": 7
     }
   }
