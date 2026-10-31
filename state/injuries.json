@@ -1,10 +1,24 @@
 {
   "2026": {
+    "12529": {
+      "name": "TreVeyon Henderson",
+      "nfl_team": "NE",
+      "position": "RB",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 8
+    },
+    "4037": {
+      "name": "Chris Godwin Jr.",
+      "nfl_team": "TB",
+      "position": "WR",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 8
+    },
     "4199": {
       "name": "Aaron Jones",
       "nfl_team": "MIN",
       "position": "RB",
-      "status": "Practice: Did Not Participate In Practice",
+      "status": "Practice: Limited Participation in Practice",
       "week": 8
     }
   }
