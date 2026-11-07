@@ -1,5 +1,19 @@
 {
   "2026": {
+    "11637": {
+      "name": "Keon Coleman",
+      "nfl_team": "BUF",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 9
+    },
+    "12506": {
+      "name": "Harold Fannin Jr.",
+      "nfl_team": "CLE",
+      "position": "TE",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 9
+    },
     "12529": {
       "name": "TreVeyon Henderson",
       "nfl_team": "NE",
@@ -11,6 +25,13 @@
       "name": "Alvin Kamara",
       "nfl_team": "NO",
       "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 9
+    },
+    "4037": {
+      "name": "Chris Godwin Jr.",
+      "nfl_team": "TB",
+      "position": "WR",
       "status": "Practice: Did Not Participate In Practice",
       "week": 9
     },
@@ -19,13 +40,6 @@
       "nfl_team": "SF",
       "position": "WR",
       "status": "Practice: Did Not Participate In Practice",
-      "week": 9
-    },
-    "6813": {
-      "name": "Jonathan Taylor",
-      "nfl_team": "IND",
-      "position": "RB",
-      "status": "Practice: Limited Participation in Practice",
       "week": 9
     }
   }
