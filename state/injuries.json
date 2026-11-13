@@ -1,3 +1,53 @@
 {
-  "2026": {}
+  "2026": {
+    "12482": {
+      "name": "Savion Williams",
+      "nfl_team": "GB",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 10
+    },
+    "12506": {
+      "name": "Harold Fannin Jr.",
+      "nfl_team": "CLE",
+      "position": "TE",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 10
+    },
+    "12529": {
+      "name": "TreVeyon Henderson",
+      "nfl_team": "NE",
+      "position": "RB",
+      "status": "Out",
+      "week": 10
+    },
+    "4035": {
+      "name": "Alvin Kamara",
+      "nfl_team": "NO",
+      "position": "RB",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 10
+    },
+    "5850": {
+      "name": "Josh Jacobs",
+      "nfl_team": "GB",
+      "position": "RB",
+      "status": "Practice: Did Not Participate In Practice",
+      "week": 10
+    },
+    "5872": {
+      "name": "Deebo Samuel Sr.",
+      "nfl_team": "SF",
+      "position": "WR",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 10
+    },
+    "6813": {
+      "name": "Jonathan Taylor",
+      "nfl_team": "IND",
+      "position": "RB",
+      "status": "Practice: Limited Participation in Practice",
+      "week": 10
+    }
+  }
 }
