@@ -21,10 +21,10 @@
       "status": "Out",
       "week": 10
     },
-    "4035": {
-      "name": "Alvin Kamara",
-      "nfl_team": "NO",
-      "position": "RB",
+    "3271": {
+      "name": "Tyler Higbee",
+      "nfl_team": "LA",
+      "position": "TE",
       "status": "Practice: Did Not Participate In Practice",
       "week": 10
     },
@@ -39,13 +39,6 @@
       "name": "Deebo Samuel Sr.",
       "nfl_team": "SF",
       "position": "WR",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 10
-    },
-    "6813": {
-      "name": "Jonathan Taylor",
-      "nfl_team": "IND",
-      "position": "RB",
       "status": "Practice: Limited Participation in Practice",
       "week": 10
     }
