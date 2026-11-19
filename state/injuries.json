@@ -1,32 +1,3 @@
 {
-  "2026": {
-    "12482": {
-      "name": "Savion Williams",
-      "nfl_team": "GB",
-      "position": "WR",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 10
-    },
-    "12529": {
-      "name": "TreVeyon Henderson",
-      "nfl_team": "NE",
-      "position": "RB",
-      "status": "Out",
-      "week": 10
-    },
-    "3271": {
-      "name": "Tyler Higbee",
-      "nfl_team": "LA",
-      "position": "TE",
-      "status": "Practice: Limited Participation in Practice",
-      "week": 10
-    },
-    "5850": {
-      "name": "Josh Jacobs",
-      "nfl_team": "GB",
-      "position": "RB",
-      "status": "Out",
-      "week": 10
-    }
-  }
+  "2026": {}
 }
